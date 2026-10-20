@@ -33,6 +33,17 @@ describe("RPC authorization scopes", () => {
     expect(new Set(Object.keys(RPC_REQUIRED_SCOPES))).toEqual(new Set(WsRpcGroup.requests.keys()));
   });
 
+  it("allows reading bookmarks separately from changing them", () => {
+    for (const method of [WS_METHODS.messageBookmarksList, WS_METHODS.messageBookmarksSubscribe])
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationReadScope);
+    for (const method of [
+      WS_METHODS.messageBookmarksAdd,
+      WS_METHODS.messageBookmarksRename,
+      WS_METHODS.messageBookmarksRemove,
+    ])
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationOperateScope);
+  });
+
   it("keeps webhook delivery logs, which hold request bodies, behind operate scope", () => {
     for (const method of [
       WS_METHODS.scheduledTasksListWebhookDeliveries,

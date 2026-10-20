@@ -27,6 +27,10 @@ export type T3McpToolSummaryAction =
   | "thread-configure"
   | "thread-fork"
   | "thread-merge"
+  | "bookmark-list"
+  | "bookmark-add"
+  | "bookmark-rename"
+  | "bookmark-remove"
   | "thread-search"
   | "thread-transfers"
   | "thread-organize"
@@ -312,6 +316,19 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   t3_thread_merge_back: tool(
     ["Merge", "Merging", "Requested a merge of", "thread context"],
     "thread-merge",
+  ),
+  t3_message_bookmarks: tool(["List", "Listing", "Listed", "message bookmarks"], "bookmark-list"),
+  t3_message_bookmark_add: tool(
+    ["Bookmark", "Bookmarking", "Bookmarked", "a message"],
+    "bookmark-add",
+  ),
+  t3_message_bookmark_rename: tool(
+    ["Rename", "Renaming", "Renamed", "a bookmark"],
+    "bookmark-rename",
+  ),
+  t3_message_bookmark_remove: tool(
+    ["Remove", "Removing", "Removed", "a bookmark"],
+    "bookmark-remove",
   ),
   t3_thread_search: tool(["Search", "Searching", "Searched", "thread content"], "thread-search"),
   t3_thread_transfers: tool(["Read", "Reading", "Read", "thread transfers"], "thread-transfers"),

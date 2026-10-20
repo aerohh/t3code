@@ -8,6 +8,8 @@ import {
 import { Maximize2, Minimize2 } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
 import { memo, type ReactElement, type ReactNode } from "react";
+import type { ScopedThreadRef } from "@t3tools/contracts";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 
 import { cn } from "~/lib/utils";
 
@@ -16,6 +18,7 @@ import { Button } from "../ui/button";
 import { PopoverCreateHandle, PopoverTrigger } from "../ui/popover";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { MessageBookmarksPopover } from "./MessageBookmarks";
 
 export interface PanelLayoutControlsProps {
   showThreadPanelControl?: boolean;
@@ -32,6 +35,8 @@ export interface PanelLayoutControlsProps {
   rightPanelOpen: boolean;
   rightPanelShortcutLabel: string | null;
   rightPanelUnavailableLabel?: string;
+  /** Thread whose bookmarks the cluster offers; null hides the bookmarks button. */
+  bookmarksThread?: ScopedThreadRef | null;
   /** Only offered on Claude chats that can still have a side chat. */
   sideChatAvailable?: boolean;
   sideChatOpen?: boolean;
@@ -56,6 +61,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   rightPanelOpen,
   rightPanelShortcutLabel,
   rightPanelUnavailableLabel = "Right panel is unavailable",
+  bookmarksThread = null,
   sideChatAvailable = false,
   sideChatOpen = false,
   onToggleSideChat,
@@ -92,6 +98,9 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       className="flex h-full shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
       data-panel-layout-controls
     >
+      {showThreadPanelControl && bookmarksThread ? (
+        <MessageBookmarksPopover key={scopedThreadKey(bookmarksThread)} thread={bookmarksThread} />
+      ) : null}
       {showThreadPanelControl && sideChatAvailable && onToggleSideChat ? (
         <Tooltip>
           <TooltipTrigger

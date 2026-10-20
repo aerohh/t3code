@@ -55,6 +55,7 @@ interface ChatHeaderProps {
   rightPanelOpen: boolean;
   /** The side chat toggle sits in the same cluster, so the title leaves room for it too. */
   sideChatControlShown?: boolean;
+  bookmarksControlShown?: boolean;
   onNewThreadInProject: () => void;
   onOpenProjectSettings?: (() => void) | undefined;
 }
@@ -71,6 +72,33 @@ function resolveRenameCommit(input: {
 
 // Delay the input-swallowing native menu through the double-click rename interval.
 const TITLE_MENU_OPEN_DELAY_MS = 500;
+
+// Room for the titlebar controls pinned over the header's right edge. The side chat and
+// bookmarks buttons each add one control (2.25rem with its gap) to the cluster.
+function reservedTitlebarControlsPadding(input: {
+  rightPanelOpen: boolean;
+  rightPane: boolean;
+  sideChat: boolean;
+  bookmarks: boolean;
+}): string {
+  if (input.rightPanelOpen) {
+    if (input.sideChat && input.bookmarks) return "pr-29";
+    if (input.sideChat) return "pr-20";
+    if (input.bookmarks) return "pr-19";
+    return "pr-10";
+  }
+  if (input.rightPane) {
+    if (input.sideChat && input.bookmarks) return "pr-51";
+    if (input.sideChat) return "pr-42";
+    if (input.bookmarks) return "pr-41";
+    return "pr-32";
+  }
+  if (input.sideChat && input.bookmarks) return "pr-43";
+  if (input.sideChat) return "pr-34";
+  if (input.bookmarks) return "pr-33";
+  return "pr-24";
+}
+
 export const ChatHeader = memo(function ChatHeader({
   activeThreadEnvironmentId,
   activeThreadId,
@@ -82,6 +110,7 @@ export const ChatHeader = memo(function ChatHeader({
   onOpenThread,
   rightPanelOpen,
   sideChatControlShown = false,
+  bookmarksControlShown = false,
   onNewThreadInProject,
   onOpenProjectSettings,
 }: ChatHeaderProps) {
@@ -282,17 +311,12 @@ export const ChatHeader = memo(function ChatHeader({
       ref={breadcrumbContainerRef}
       className={cn(
         "flex min-w-0 flex-1 items-center gap-2 sm:gap-3",
-        rightPanelOpen
-          ? sideChatControlShown
-            ? "pr-20"
-            : "pr-10"
-          : paneSide === "right"
-            ? sideChatControlShown
-              ? "pr-42"
-              : "pr-32"
-            : sideChatControlShown
-              ? "pr-34"
-              : "pr-24",
+        reservedTitlebarControlsPadding({
+          rightPanelOpen,
+          rightPane: paneSide === "right",
+          sideChat: sideChatControlShown,
+          bookmarks: bookmarksControlShown,
+        }),
       )}
       onContextMenu={handleHeaderContextMenu}
     >

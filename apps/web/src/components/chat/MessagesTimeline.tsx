@@ -1,4 +1,8 @@
 import { AudioPreviewUnmountContext } from "../files/AudioPreview";
+import { useAtomValue } from "@effect/atom-react";
+import { appAtomRegistry } from "../../rpc/atomRegistry";
+import { toastManager } from "../ui/toast";
+import { messageBookmarkNavigation } from "@t3tools/client-runtime/state/messageBookmarks";
 import { ThreadFindTimelineContext } from "./ThreadFindProvider";
 import { MarkdownFindContext } from "./markdownFindContext";
 import { useChatCanvas } from "./ChatCanvasContext";
@@ -31,6 +35,8 @@ import {
   memo,
   use,
   useContext,
+  useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   useState,
@@ -296,16 +302,50 @@ interface MessagesTimelineProps {
   findQuery?: string;
   activeFindMatch?: ThreadFindMatch | null;
   findNavigationId?: number;
+  onBookmarkPositioned?: (() => void) | undefined;
+  onBookmarkMissing?: (() => void) | undefined;
+  /** Off for guests, who read a shared thread they cannot bookmark. */
+  bookmarksEnabled?: boolean;
 }
 
 export function MessagesTimeline(props: MessagesTimelineProps) {
   const find = useContext(ThreadFindTimelineContext);
+  const bookmarkRequest = useAtomValue(messageBookmarkNavigation(props.routeThreadKey));
+  const bookmark = bookmarkRequest?.bookmark;
+  const bookmarkMatch = bookmark
+    ? { entryId: bookmark.messageId, runId: bookmark.runId, occurrence: 0 }
+    : null;
   const findOpen = find?.findOpen ?? props.findOpen;
+  const onBookmarkPositioned = () => {
+    const atom = messageBookmarkNavigation(props.routeThreadKey);
+    if (appAtomRegistry.get(atom) === bookmarkRequest) appAtomRegistry.set(atom, null);
+  };
+  const onBookmarkMissing = () => {
+    const atom = messageBookmarkNavigation(props.routeThreadKey);
+    if (appAtomRegistry.get(atom) !== bookmarkRequest) return;
+    appAtomRegistry.set(atom, null);
+    toastManager.add({ type: "info", title: "This message is no longer in the chat" });
+  };
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- drops this thread's pending bookmark jump from the shared atom once the timeline stops showing it
+  useEffect(
+    () => () => appAtomRegistry.set(messageBookmarkNavigation(props.routeThreadKey), null),
+    [props.routeThreadKey],
+  );
   return (
     <ConversationTimeline
       {...props}
       {...find}
-      liveFollowEnabled={!findOpen && props.liveFollowEnabled}
+      onBookmarkPositioned={onBookmarkPositioned}
+      onBookmarkMissing={onBookmarkMissing}
+      {...(!findOpen && bookmarkMatch
+        ? {
+            activeFindMatch: bookmarkMatch,
+            findExpanded: true,
+            findQuery: "",
+            findNavigationId: bookmarkRequest?.requestId ?? 0,
+          }
+        : {})}
+      liveFollowEnabled={!findOpen && bookmarkMatch === null && props.liveFollowEnabled}
     />
   );
 }
@@ -336,6 +376,9 @@ const ConversationTimeline = memo(function ConversationTimeline({
   findQuery = "",
   activeFindMatch = null,
   findNavigationId = 0,
+  onBookmarkPositioned,
+  onBookmarkMissing,
+  bookmarksEnabled = false,
   latestRun,
   announcedRun = null,
   detailBehindShell = false,
@@ -1017,6 +1060,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     timestampFormat,
     routeThreadKey,
     threadRef: citationThreadRef,
+    bookmarksEnabled,
     markdownCwd,
     resolvedTheme,
     workspaceRoot,
@@ -1186,6 +1230,15 @@ const ConversationTimeline = memo(function ConversationTimeline({
     contentInsetEndAdjustment,
   });
 
+  // A bookmark jump is manual navigation: it lets go of the live end, as opening find does.
+  const bookmarkJumpId =
+    activeFindMatch && normalizedFindQuery.length === 0 ? findNavigationId : null;
+  const releaseFollowForBookmarkJump = useEffectEvent(() => navigateTimeline());
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a bookmark jump arrives through a shared atom, so the list's follow is released when it shows up here
+  useEffect(() => {
+    if (bookmarkJumpId !== null) releaseFollowForBookmarkJump();
+  }, [bookmarkJumpId]);
+
   useThreadFindNavigation({
     // Find reveals its match only after the opening restore settles; both
     // scroll the list directly, so the restore would otherwise pull it back.
@@ -1196,6 +1249,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
     query: normalizedFindQuery,
     match: activeFindMatch,
     navigationId: findNavigationId,
+    onPositioned: normalizedFindQuery.length === 0 ? onBookmarkPositioned : undefined,
+    onMissing: normalizedFindQuery.length === 0 ? onBookmarkMissing : undefined,
     rowIndex: activeFindMatch ? rows.findIndex((row) => row.id === activeFindMatch.entryId) : -1,
     listRef,
     contentInsetEndAdjustment,

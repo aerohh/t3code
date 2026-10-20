@@ -37,6 +37,7 @@ export interface TurnItemSource {
 }
 
 export interface TimelineRowSharedState {
+  bookmarksEnabled: boolean;
   citationRequest: AssistantCitationTarget | null;
   listRef: React.RefObject<LegendListRef | null>;
   timestampFormat: TimestampFormat;

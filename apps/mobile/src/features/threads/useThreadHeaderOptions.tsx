@@ -24,6 +24,7 @@ export function useThreadHeaderOptions(props: {
   readonly gitControls: Parameters<typeof ThreadGitControls>[0];
   readonly onReturnToThread?: () => void;
   readonly draft?: boolean;
+  readonly onOpenBookmarks?: (() => void) | undefined;
 }) {
   const usesNativeWorkspaceColumns = useNativeWorkspaceColumnsSupported();
   const deviceType = useDeviceType();
@@ -84,6 +85,37 @@ export function useThreadHeaderOptions(props: {
     [navigation],
   );
 
+  const bookmarkItems = useMemo<NativeHeaderItems>(
+    () =>
+      props.onOpenBookmarks
+        ? [
+            withNativeGlassHeaderItem({
+              type: "button" as const,
+              identifier: "thread-right-bookmarks",
+              label: "Bookmarks",
+              accessibilityLabel: "Chat bookmarks",
+              icon: { name: "bookmark", type: "sfSymbol" as const },
+              onPress: props.onOpenBookmarks,
+            }),
+          ]
+        : [],
+    [props.onOpenBookmarks],
+  );
+  const rightItems = useMemo(
+    () => [
+      ...bookmarkItems,
+      ...(usesDuoHeader || layout.usesSplitView
+        ? threadCenterHeaderItems
+        : compactRightHeaderItems),
+    ],
+    [
+      bookmarkItems,
+      usesDuoHeader,
+      layout.usesSplitView,
+      threadCenterHeaderItems,
+      compactRightHeaderItems,
+    ],
+  );
   const options: AppNativeStackNavigationOptions = {
     ...threadHeaderAppearance(props.usesNativeHeaderGlass),
     headerTitle: props.title,
@@ -95,8 +127,7 @@ export function useThreadHeaderOptions(props: {
         ? undefined
         : () => compactHomeHeaderItems,
     // The workspace navigator adds compose to the Duo detail column's bar.
-    unstable_headerRightItems: () =>
-      usesDuoHeader || layout.usesSplitView ? threadCenterHeaderItems : compactRightHeaderItems,
+    unstable_headerRightItems: () => rightItems,
     unstable_headerToolbarItems: () => [],
     unstable_headerSubtitle: props.usesNativeHeaderGlass ? props.subtitle : undefined,
     contentStyle: undefined,
@@ -106,6 +137,7 @@ export function useThreadHeaderOptions(props: {
     options,
     // Factories re-read only on version changes; include displayed items and hidden callback state such as default refs.
     optionsVersion: [
+      rightItems,
       splitLeftHeaderItems,
       threadCenterHeaderItems,
       compactRightHeaderItems,

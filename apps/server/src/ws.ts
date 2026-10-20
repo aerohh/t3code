@@ -99,7 +99,8 @@ import {
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
   WS_METHODS,
-  WsRpcGroup,
+  MessageBookmarksRpcGroup,
+  WsCoreRpcGroup,
 } from "@t3tools/contracts";
 import {
   HttpRouter,
@@ -168,6 +169,7 @@ import {
 import { dedupeSnapshotBodies } from "@t3tools/shared/orchestrationV2DedupedBodies";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
+import * as MessageBookmarks from "./orchestration-v2/MessageBookmarks.ts";
 import * as OrchestrationEventStore from "./persistence/OrchestrationEventStore.ts";
 import { userFacingDispatchErrorMessage } from "./orchestration-v2/UserFacingErrors.ts";
 import * as ProviderRegistry from "./provider/ProviderRegistry.ts";
@@ -558,13 +560,15 @@ function projectFileFailureContext(
 const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
-const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
+const ServerWsCoreRpcGroup = WsCoreRpcGroup.middleware(RpcInstrumentation);
+const ServerMessageBookmarksRpcGroup = MessageBookmarksRpcGroup.middleware(RpcInstrumentation);
+const ServerWsRpcGroup = ServerWsCoreRpcGroup.merge(ServerMessageBookmarksRpcGroup);
 
 // RpcGroup.toLayer derives each handler's requirements by scanning every RPC in
 // the group, so its type cost grows with handlers × RPCs. Near 200 methods that
 // crosses TypeScript's instantiation limit and the layer's requirements degrade to
 // `any`, so the handlers are registered as two disjoint, smaller groups.
-type ServerWsRpc = RpcGroup.Rpcs<typeof ServerWsRpcGroup>;
+type ServerWsRpc = RpcGroup.Rpcs<typeof ServerWsCoreRpcGroup>;
 const SPLIT_WS_RPC_PREFIXES = ["server", "pullRequests", "provider", "orchestration"] as const;
 type SplitWsRpc = Extract<
   ServerWsRpc,
@@ -574,7 +578,7 @@ const isSplitWsRpc = (rpc: ServerWsRpc): rpc is SplitWsRpc =>
   SPLIT_WS_RPC_PREFIXES.some((prefix) => rpc._tag.startsWith(`${prefix}.`));
 const isOtherWsRpc = (rpc: ServerWsRpc): rpc is Exclude<ServerWsRpc, SplitWsRpc> =>
   !isSplitWsRpc(rpc);
-const serverWsRpcs = Array.from(ServerWsRpcGroup.requests.values());
+const serverWsRpcs = Array.from(ServerWsCoreRpcGroup.requests.values());
 const SplitWsRpcGroup = RpcGroup.make(...serverWsRpcs.filter(isSplitWsRpc));
 const OtherWsRpcGroup = RpcGroup.make(...serverWsRpcs.filter(isOtherWsRpc));
 // Replaying each intervening event costs a shell refetch; past this gap a
@@ -1232,6 +1236,22 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
   },
 );
 
+// Typing one handler layer means checking every handler against every method in its
+// group, so the work grows with the square of the group size. Over the whole WebSocket
+// group that passes TypeScript's instantiation limit, so bookmarks get their own layer.
+const layerMessageBookmarksRpc = ServerMessageBookmarksRpcGroup.toLayer(
+  Effect.gen(function* () {
+    const messageBookmarks = yield* MessageBookmarks.MessageBookmarks;
+    return ServerMessageBookmarksRpcGroup.of({
+      [WS_METHODS.messageBookmarksSubscribe]: (input) => messageBookmarks.subscribe(input),
+      [WS_METHODS.messageBookmarksList]: (input) => messageBookmarks.list(input),
+      [WS_METHODS.messageBookmarksAdd]: (input) => messageBookmarks.add(input),
+      [WS_METHODS.messageBookmarksRename]: (input) => messageBookmarks.rename(input),
+      [WS_METHODS.messageBookmarksRemove]: (input) => messageBookmarks.remove(input),
+    });
+  }),
+);
+
 export const layerWsRpc = (
   currentSession: EnvironmentAuth.AuthenticatedSession,
   clientOrigin: OrchestrationClientOrigin,
@@ -1801,6 +1821,7 @@ export const layerWsRpc = (
           threadResumeCompletionMarker: true,
           threadSnapshotPagination: true,
           threadFind: true,
+          messageBookmarks: true,
           threadFindProgressive: true,
           ...Option.match(scratchWorkspaceRoot, {
             onNone: () => ({}),
@@ -1907,7 +1928,7 @@ export const layerWsRpc = (
         return result;
       });
 
-      const handlers = ServerWsRpcGroup.of({
+      const handlers = ServerWsCoreRpcGroup.of({
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           Effect.annotateCurrentSpan({
             "orchestration_v2.command_id": command.commandId,
@@ -3308,7 +3329,7 @@ export const layerWsRpc = (
         yield* OtherWsRpcGroup.toHandlers(otherHandlers),
       );
     }),
-  );
+  ).pipe(Layer.merge(layerMessageBookmarksRpc));
 
 // Default socket-level Defect frames end every pending client request.
 export const WS_RPC_SERVER_OPTIONS = {
