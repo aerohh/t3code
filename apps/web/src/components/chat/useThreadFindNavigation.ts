@@ -16,6 +16,7 @@ interface RevealInputs {
   readonly historyError: string | null;
   readonly contentInsetEndAdjustment: number;
   readonly container: HTMLElement | null;
+  readonly query: string;
 }
 
 /** Positioning bookkeeping that outlives a render: pending jumps and the pinned match during paging. */
@@ -39,6 +40,7 @@ function revealThreadFindMatch(
     readonly state: RevealState;
     readonly listRef: RefObject<LegendListRef | null>;
     readonly readInputs: () => RevealInputs;
+    readonly onPositioned: (() => void) | undefined;
   },
 ): void {
   const { state, listRef, readInputs } = context;
@@ -116,6 +118,12 @@ function revealThreadFindMatch(
 
         state.positionedEntries = entries;
         state.settledMatch = matchKey;
+        // A bookmark (empty query) targets the row itself, which has no text range to reveal.
+        if (readInputs().query.length === 0) {
+          state.revealedMatch = matchKey;
+          context.onPositioned?.();
+          return;
+        }
         revealAgain();
       });
   };
@@ -182,7 +190,12 @@ export function useThreadFindNavigation({
   contentInsetEndAdjustment,
   listReady,
   historyControls,
+  onPositioned,
+  onMissing,
 }: {
+  onPositioned?: (() => void) | undefined;
+  /** Called when a row-only jump (empty query) exhausted history without finding the row. */
+  onMissing?: (() => void) | undefined;
   container: HTMLElement | null;
   query: string;
   match: ThreadFindMatch | null;
@@ -221,6 +234,7 @@ export function useThreadFindNavigation({
     historyError,
     contentInsetEndAdjustment,
     container,
+    query,
   }));
   // H/Z: stays an effect. The listener compares against the entries rendered at
   // scroll time; the viewport ref callback in MessagesTimeline cannot read
@@ -262,16 +276,24 @@ export function useThreadFindNavigation({
       entries.some((entry) => entry.id === match.entryId)
     )
       return;
-    if (!historyControls?.hasMoreHistory || historyControls.loading || historyControls.error)
+    if (historyControls?.loading || historyControls?.error) return;
+    if (!historyControls?.hasMoreHistory) {
+      if (query.length === 0) onMissing?.();
       return;
+    }
     const cursor = entries[0]?.id ?? "first";
     if (requestedPagesRef.current.pages.has(cursor)) return;
     requestedPagesRef.current.pages.add(cursor);
 
     historyControls.onLoadEarlier(match.entryId);
-  }, [entries, historyControls, listReady, match, matchKey, rowIndex]);
+  }, [entries, historyControls, listReady, match, matchKey, onMissing, query, rowIndex]);
   const reveal = useEffectEvent((range: Range | null, inputs: RevealInputs) =>
-    revealThreadFindMatch(range, inputs, { state: stateRef.current, listRef, readInputs }),
+    revealThreadFindMatch(range, inputs, {
+      state: stateRef.current,
+      listRef,
+      readInputs,
+      onPositioned,
+    }),
   );
 
   useThreadFindHighlights({
@@ -295,6 +317,7 @@ export function useThreadFindNavigation({
       historyError,
       contentInsetEndAdjustment,
       container,
+      query,
     });
   }, [
     container,
@@ -305,5 +328,6 @@ export function useThreadFindNavigation({
     historyLoading,
     historyError,
     contentInsetEndAdjustment,
+    query,
   ]);
 }

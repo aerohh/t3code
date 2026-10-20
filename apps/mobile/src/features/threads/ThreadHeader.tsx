@@ -1,4 +1,9 @@
-import { useMemo } from "react";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { serverEnvironment } from "../../state/server";
+import { MessageBookmarksPopup, useThreadHasMessageBookmarks } from "./MessageBookmarks";
+import { useMemo, useState } from "react";
 import { AppBar } from "../../components/ui/AppBar";
 import { ScreenHeaderButton } from "../../components/ui/ScreenHeaderButton";
 import type { AppBarAction } from "../../components/ui/AppBar.types";
@@ -23,9 +28,30 @@ export function ThreadHeader(
   const { layout, panes, toggleAuxiliaryPane, composerKeyboardActive } =
     useAdaptiveWorkspaceLayout();
   const { onOpenTerminal, onMergeBack } = props.gitControls;
-  const native = useThreadHeaderOptions(props);
+  const [bookmarksOpen, setBookmarksOpen] = useState(false);
+  const environmentId = EnvironmentId.make(props.gitControls.environmentId);
+  const config = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+  const bookmarksThread = useMemo(
+    () => scopeThreadRef(environmentId, ThreadId.make(props.gitControls.threadId)),
+    [environmentId, props.gitControls.threadId],
+  );
+  const showBookmarks = useThreadHasMessageBookmarks(
+    bookmarksThread,
+    config?.messageBookmarks === true,
+  );
+  const openBookmarks = useMemo(() => () => setBookmarksOpen(true), []);
+  const native = useThreadHeaderOptions({
+    ...props,
+    onOpenBookmarks: showBookmarks ? openBookmarks : undefined,
+  });
   const androidHeaderActions = useMemo<ReadonlyArray<AppBarAction>>(() => {
     const actions: AppBarAction[] = [];
+    if (showBookmarks)
+      actions.push({
+        accessibilityLabel: "Chat bookmarks",
+        icon: "bookmark",
+        onPress: openBookmarks,
+      });
     if (props.onReturnToThread) {
       actions.push({
         accessibilityLabel: "Return to chat",
@@ -63,6 +89,8 @@ export function ThreadHeader(
     }
     return actions;
   }, [
+    showBookmarks,
+    openBookmarks,
     props.inspectorMode,
     panes.auxiliaryPaneVisible,
     props.onOpenFilesInspector,
@@ -104,6 +132,14 @@ export function ThreadHeader(
         compact={composerKeyboardActive}
       />
       {native.fallback}
+      {showBookmarks ? (
+        <MessageBookmarksPopup
+          key={`${environmentId}:${props.gitControls.threadId}`}
+          thread={bookmarksThread}
+          open={bookmarksOpen}
+          onClose={() => setBookmarksOpen(false)}
+        />
+      ) : null}
     </>
   );
 }

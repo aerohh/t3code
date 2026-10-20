@@ -1,5 +1,6 @@
 import { InlineAudioPreview } from "../files/InlineAudioPreview";
 import { filePreviewKind } from "@t3tools/shared/filePreview";
+import { MessageBookmarkButton } from "./MessageBookmarks";
 import { findRevealRef } from "./markdownFindContext";
 import {
   type EnvironmentId,
@@ -780,6 +781,9 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         </TooltipPopup>
       </Tooltip>
       <div className={cn("flex items-center gap-0.5", floatActions && "flex-wrap justify-end")}>
+        {ctx.bookmarksEnabled && ctx.threadRef ? (
+          <MessageBookmarkButton thread={ctx.threadRef} messageId={row.message.id} />
+        ) : null}
         {typeof revertTurnCount === "number" && (
           <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
         )}
