@@ -57,6 +57,7 @@ import {
   ChartNoAxesColumnIcon,
   CheckIcon,
   ChevronRightIcon,
+  Columns2Icon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderGit2Icon,
@@ -157,6 +158,12 @@ import {
   newProjectId,
 } from "../lib/utils";
 import { buildThreadRouteParams } from "../threadRoutes";
+import {
+  canPairThreads,
+  resolveSideBySideMenuOption,
+  threadPairFitsOnScreen,
+  useThreadPairStore,
+} from "../threadPairStore";
 import { useAvailableSettingsSearchItems } from "./settings/useAvailableSettingsSearchItems";
 import {
   applyWslEnvironmentConfiguration,
@@ -171,6 +178,7 @@ import {
   buildBrowseGroups,
   buildRootGroups,
   buildLinkedThreadActionItems,
+  buildThreadActionItems,
   buildCommandPaletteRows,
   enumerateCommandPaletteItems,
   newThreadNoProjectIndex,
@@ -241,8 +249,11 @@ import { Button } from "./ui/button";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { suggestAppAccessForRemote } from "./sourceControlAppAccessToast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
-import type { ChatComposerHandle } from "./chat/ChatComposer";
+import {
+  ActiveComposerSlotContext,
+  createActiveComposerSlot,
+  useActiveComposerSlot,
+} from "../composerHandleContext";
 import { pickableProjectGroups } from "@t3tools/client-runtime/state/project-grouping";
 import { buildSidebarProjectPickerEntries } from "../sidebarProjectGrouping";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
@@ -253,6 +264,7 @@ import { threadRecentUse } from "@t3tools/shared/paletteSearch";
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 const ADD_PROJECT_ENTRY_GROUP = "add-project";
 const NEW_THREAD_IN_GROUP = "projects";
+const OPEN_BESIDE_GROUP = "open-beside";
 
 /** The submenu an open intent starts in; its groups resolve while rendering. */
 function openIntentView(intent: CommandPaletteOpenIntent | null): CommandPaletteView | null {
@@ -266,6 +278,11 @@ function openIntentView(intent: CommandPaletteOpenIntent | null): CommandPalette
       return {
         addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
         groups: [{ value: NEW_THREAD_IN_GROUP, label: "Projects", items: [] }],
+      };
+    case "open-beside":
+      return {
+        addonIcon: <Columns2Icon className={ADDON_ICON_CLASS} />,
+        groups: [{ value: OPEN_BESIDE_GROUP, label: "Open beside", items: [] }],
       };
     case "change-theme":
       return {
@@ -286,10 +303,10 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   const setOpen = (open: boolean) => dispatchCommandPalette({ _tag: "SetOpen", open });
   const openChildSearch = (mode: "files" | "content", context: CommandPaletteReturnContext) =>
     dispatchCommandPalette({ _tag: "OpenChildSearch", mode, context });
-  const composerHandleRef = useRef<ChatComposerHandle | null>(null);
+  const [activeComposerSlot] = useState(createActiveComposerSlot);
 
   return (
-    <ComposerHandleContext value={composerHandleRef}>
+    <ActiveComposerSlotContext value={activeComposerSlot}>
       <CommandDialog
         open={state.open}
         onOpenChange={(open, eventDetails) => {
@@ -313,7 +330,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           initialContext={state.restoredSearch}
         />
       </CommandDialog>
-    </ComposerHandleContext>
+    </ActiveComposerSlotContext>
   );
 }
 
@@ -328,7 +345,7 @@ function CommandPaletteDialog(props: {
   ) => void;
   readonly initialContext: CommandPaletteReturnContext | undefined;
 }) {
-  const composerHandleRef = useComposerHandleContext();
+  const activeComposerSlot = useActiveComposerSlot();
 
   return (
     <CommandDialogPopup
@@ -347,7 +364,7 @@ function CommandPaletteDialog(props: {
         if (restoreWorkspaceFocusFromPalette()) return false;
         const returnFocus = getCommandPaletteReturnFocus();
         if (returnFocus === false) return false;
-        const composer = composerHandleRef?.current;
+        const composer = activeComposerSlot?.getComposer();
         // Behind the Settings modal the composer is inert and cannot take focus.
         if (!composer || document.querySelector("[data-app-modal]")) return returnFocus;
         composer.focusAtEnd();
@@ -478,6 +495,7 @@ function OpenCommandPaletteDialog(props: {
     await copyThreadReference(activeThreadReferenceCopyTarget);
   };
   const threads = useThreadShells();
+  const threadPairs = useThreadPairStore((store) => store.pairs);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const providersByEnvironment = useEnvironmentProviders();
   const { changeThemeItem, changeAppearanceItem, themeEditorItem } = useCommandPaletteThemeItems();
@@ -1276,6 +1294,73 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  const activeThreadSideBySide = activeThread
+    ? resolveSideBySideMenuOption({
+        pairs: threadPairs,
+        thread: activeThread,
+        currentThread: activeThread,
+        inScratchProject: projects.some(
+          (project) =>
+            project.environmentId === activeThread.environmentId &&
+            project.id === activeThread.projectId &&
+            project.isScratch === true,
+        ),
+        fitsOnScreen: threadPairFitsOnScreen(),
+      })
+    : null;
+  const openBesideItems =
+    activeThread && activeThreadSideBySide?.kind === "pick"
+      ? buildThreadActionItems({
+          threads: sortThreads(
+            threads.filter(
+              (thread) =>
+                thread.lineage.relationshipToParent !== "subagent" &&
+                canPairThreads(threadPairs, activeThread, thread),
+            ),
+            clientSettings.sidebarThreadSortOrder,
+          ),
+          projectByKey,
+          icon: <Columns2Icon className={ITEM_ICON_CLASS} />,
+          runThread: async (thread) => {
+            useThreadPairStore
+              .getState()
+              .openPair(
+                scopeThreadRef(activeThread.environmentId, activeThread.id),
+                scopeThreadRef(thread.environmentId, thread.id),
+              );
+          },
+        })
+      : [];
+  if (activeThread && activeThreadSideBySide?.kind === "close") {
+    actionItems.push({
+      kind: "action",
+      value: "action:close-side-by-side",
+      searchTerms: ["close side by side", "split", "pair"],
+      title: "Close side by side",
+      icon: <Columns2Icon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "thread.sideBySide",
+      run: async () => {
+        useThreadPairStore
+          .getState()
+          .closePair(scopeThreadRef(activeThread.environmentId, activeThread.id));
+      },
+    });
+  } else if (activeThreadSideBySide?.kind === "pick") {
+    actionItems.push({
+      kind: "submenu",
+      value: "action:open-beside",
+      searchTerms: ["open beside", "side by side", "split", "pair", "two chats"],
+      title: "Open beside...",
+      ...(activeThreadSideBySide.blockedReason === null
+        ? {}
+        : { description: "Not enough room for two chats", disabled: true }),
+      icon: <Columns2Icon className={ITEM_ICON_CLASS} />,
+      addonIcon: <Columns2Icon className={ADDON_ICON_CLASS} />,
+      shortcutCommand: "thread.sideBySide",
+      groups: [{ value: OPEN_BESIDE_GROUP, label: "Open beside", items: openBesideItems }],
+    });
+  }
+
   if (activeThreadKey !== null && supportsThreadFind) {
     actionItems.push({
       kind: "action",
@@ -1691,11 +1776,13 @@ function OpenCommandPaletteDialog(props: {
                 items: projectThreadItems.length > 0 ? projectThreadItems : [addProjectAction],
               },
             ]
-          : currentView?.groups[0]?.value === "themes"
-            ? changeThemeItem.groups
-            : currentView?.groups[0]?.value === "appearance"
-              ? changeAppearanceItem.groups
-              : (currentView?.groups ?? rootGroups);
+          : currentView?.groups[0]?.value === OPEN_BESIDE_GROUP
+            ? [{ value: OPEN_BESIDE_GROUP, label: "Open beside", items: openBesideItems }]
+            : currentView?.groups[0]?.value === "themes"
+              ? changeThemeItem.groups
+              : currentView?.groups[0]?.value === "appearance"
+                ? changeAppearanceItem.groups
+                : (currentView?.groups ?? rootGroups);
 
   const isLinkedThreadSearch =
     linkedThreadSearch?.linkedThreads !== undefined && deferredQuery === linkedThreadSearch.query;

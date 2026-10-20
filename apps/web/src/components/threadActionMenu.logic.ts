@@ -1,9 +1,11 @@
 import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
+import type { SideBySideMenuOption } from "../threadPairStore";
 
 export type ThreadActionMenuId =
   | "find"
   | "new-thread-on-branch"
+  | SideBySideMenuId
   | "filter-by-project"
   | "turn-into-project"
   | "project-settings"
@@ -28,6 +30,24 @@ export type ThreadActionMenuId =
   | "copy-thread-id"
   | "archive"
   | "delete";
+
+export type SideBySideMenuId = "open-beside" | "close-side-by-side";
+
+function buildSideBySideMenuItem(
+  option: SideBySideMenuOption | null,
+): ContextMenuItem<SideBySideMenuId> | null {
+  if (option === null) return null;
+  if (option.kind === "close") {
+    return { id: "close-side-by-side", label: "Close side by side", icon: "columns-2" };
+  }
+  const label = option.kind === "pick" ? "Open beside…" : "Open beside";
+  return {
+    id: "open-beside",
+    label: option.blockedReason === null ? label : `${label} (${option.blockedReason})`,
+    icon: "columns-2",
+    disabled: option.blockedReason !== null,
+  };
+}
 
 export type DraftActionMenuId =
   | "copy"
@@ -95,13 +115,16 @@ export interface ThreadActionMenuState {
   readonly canShareWithGuest?: boolean;
   /** A No project thread with its own folder, on a server that can promote it. */
   readonly canTurnIntoProject?: boolean;
+  readonly sideBySide: SideBySideMenuOption | null;
 }
 
-/** Local navigation, read markers, and copying remain available to read-only clients. */
+/** Local navigation and layout, read markers, and copying remain available to read-only clients. */
 export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean {
   return ![
     "find",
     "new-thread-on-branch",
+    "open-beside",
+    "close-side-by-side",
     "project-settings",
     "mark-unread",
     "share-guest",
@@ -116,6 +139,7 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
 export function buildThreadActionMenuItems(
   state: ThreadActionMenuState,
 ): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
+  const sideBySideItem = buildSideBySideMenuItem(state.sideBySide);
   const items: ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> = [
     ...(state.canFind
       ? [{ id: "find" as const, label: "Find in thread", icon: "text-search" }]
@@ -129,6 +153,7 @@ export function buildThreadActionMenuItems(
           },
         ]
       : []),
+    ...(sideBySideItem ? [sideBySideItem] : []),
     ...(state.supports.pinning
       ? [
           state.isPinned

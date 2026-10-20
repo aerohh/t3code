@@ -18,6 +18,8 @@ vi.mock(import("../../state/entities"), () => ({
   useThreadRelationshipShells: (() =>
     state.projection === null ? [] : [(state.projection as { thread: unknown }).thread]) as never,
   useProjects: (() => []) as never,
+  readProject: (() => null) as never,
+  readThreadShell: (() => null) as never,
 }));
 vi.mock(import("../../state/environments"), () => ({
   useEnvironment: (() => null) as never,

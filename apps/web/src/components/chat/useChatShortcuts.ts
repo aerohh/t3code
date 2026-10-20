@@ -95,6 +95,7 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
   const dismissFind = useEffectEvent((event: KeyboardEvent) => {
     if (
       event.key !== "Escape" ||
+      !input.enabled ||
       !input.threadFindActive ||
       event.defaultPrevented ||
       event.isComposing ||

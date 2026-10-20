@@ -1,4 +1,4 @@
-import { useComposerHandleContext } from "../../composerHandleContext";
+import { useActiveComposerSlot, useComposerHandleContext } from "../../composerHandleContext";
 
 const COMPOSER_FLOATING_LAYER_SELECTOR = [
   '[data-composer-drawer-layer="true"]',
@@ -10,20 +10,25 @@ export const composerFloatingLayerProps = {
 } as const;
 
 export function useComposerMenuProps() {
-  const composerRef = useComposerHandleContext();
+  const chatComposerRef = useComposerHandleContext();
+  const activeComposerSlot = useActiveComposerSlot();
 
   return {
     ...composerFloatingLayerProps,
-    finalFocus: composerRef
-      ? () => {
-          const activeElement = document.activeElement;
-          if (activeElement !== document.body && !isInsideComposerFloatingLayer(activeElement)) {
+    finalFocus:
+      chatComposerRef || activeComposerSlot
+        ? () => {
+            const activeElement = document.activeElement;
+            if (activeElement !== document.body && !isInsideComposerFloatingLayer(activeElement)) {
+              return false;
+            }
+            const composer = chatComposerRef
+              ? chatComposerRef.current
+              : activeComposerSlot?.getComposer();
+            composer?.focusAtEnd();
             return false;
           }
-          composerRef.current?.focusAtEnd();
-          return false;
-        }
-      : undefined,
+        : undefined,
   };
 }
 

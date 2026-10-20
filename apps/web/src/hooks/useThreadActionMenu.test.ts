@@ -88,6 +88,10 @@ vi.mock("@t3tools/client-runtime/state/project-grouping", () => ({
 vi.mock("../sidebarProjectGrouping", () => ({
   buildPhysicalToLogicalProjectKeyMap: () => new Map(),
 }));
+vi.mock("../threadPairStore", () => ({
+  readSideBySideMenuOption: () => null,
+  runSideBySideMenuOption: vi.fn(),
+}));
 vi.mock("../uiStateStore", () => ({
   useUiStateStore: (select: (store: unknown) => unknown) =>
     select({
