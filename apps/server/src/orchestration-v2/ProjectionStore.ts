@@ -457,6 +457,10 @@ export interface ProjectionStoreV2Shape {
     ReadonlyArray<{ readonly threadId: ThreadId; readonly worktreePath: string }>,
     ProjectionStoreV2Error
   >;
+  /** The parent's side chat that is not deleted yet, or null. */
+  readonly getSideChatThreadId: (
+    parentThreadId: ThreadId,
+  ) => Effect.Effect<ThreadId | null, ProjectionStoreV2Error>;
   readonly getTurnStartContext: (
     threadId: ThreadId,
     runId: RunId,
@@ -1537,6 +1541,7 @@ export function threadShellFromProjection(
       ? {}
       : { activeOrderKey: projection.thread.activeOrderKey }),
     lineage: projection.thread.lineage,
+    ...(projection.thread.sideChat === undefined ? {} : { sideChat: projection.thread.sideChat }),
     forkedFrom: projection.thread.forkedFrom,
     activeProviderThreadId: projection.thread.activeProviderThreadId,
     ...(projection.thread.historyOrigin === undefined
@@ -1805,6 +1810,7 @@ function shellFromState(input: {
       ? {}
       : { activeOrderKey: input.state.thread.activeOrderKey }),
     lineage: input.state.thread.lineage,
+    ...(input.state.thread.sideChat === undefined ? {} : { sideChat: input.state.thread.sideChat }),
     forkedFrom: input.state.thread.forkedFrom,
     activeProviderThreadId: input.state.thread.activeProviderThreadId,
     ...(input.state.thread.historyOrigin === undefined
@@ -5654,6 +5660,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               AND json_extract(t.payload_json, '$.settledOverride') IS NULL
               AND json_extract(t.payload_json, '$.pinnedAt') IS NULL
               AND json_extract(t.payload_json, '$.autoSettleDisabledAt') IS NULL
+              AND json_extract(t.payload_json, '$.sideChat') IS NULL
               AND NOT EXISTS (
                 SELECT 1 FROM orchestration_v2_projection_runs active
                 WHERE active.thread_id = t.thread_id
@@ -5768,6 +5775,19 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             worktreePath: row.worktree_path,
           })),
         ),
+        Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
+      );
+
+    const getSideChatThreadId: ProjectionStoreV2Shape["getSideChatThreadId"] = (parentThreadId) =>
+      sql<{ readonly thread_id: string }>`
+        SELECT thread_id
+        FROM orchestration_v2_projection_threads
+        WHERE deleted_at IS NULL
+          AND json_extract(payload_json, '$.lineage.parentThreadId') = ${parentThreadId}
+          AND json_extract(payload_json, '$.sideChat') IS NOT NULL
+        LIMIT 1
+      `.pipe(
+        Effect.map((rows) => (rows[0] === undefined ? null : ThreadId.make(rows[0].thread_id))),
         Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
       );
 
@@ -6108,6 +6128,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getSettlementCandidates,
       getThreadsWithPullRequests,
       getThreadWorktreePaths,
+      getSideChatThreadId,
       getThreadProjection,
       getTurnStartContext,
       getTurnStartHistory,
@@ -6240,6 +6261,7 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 thread.settledOverride === null &&
                 thread.pinnedAt == null &&
                 thread.autoSettleDisabledAt == null &&
+                thread.sideChat === undefined &&
                 !runs.some(isActivityRunForShell) &&
                 !runtimeRequests.some((request) => request.status === "pending"),
             )
@@ -6267,6 +6289,18 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 ? [{ threadId: thread.id, worktreePath: thread.worktreePath }]
                 : [],
             ),
+          ),
+        ),
+      getSideChatThreadId: (parentThreadId) =>
+        Ref.get(replayState).pipe(
+          Effect.map(
+            (state) =>
+              [...state.projections.values()].find(
+                ({ thread }) =>
+                  thread.deletedAt === null &&
+                  thread.lineage.parentThreadId === parentThreadId &&
+                  thread.sideChat !== undefined,
+              )?.thread.id ?? null,
           ),
         ),
       getThreadsWithPullRequests: (threadId) =>

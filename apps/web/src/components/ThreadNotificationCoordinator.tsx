@@ -6,6 +6,7 @@ import { pendingSubagentRequestsByThread } from "@t3tools/client-runtime/state/t
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import type { EnvironmentId, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
+import { isSideChatThread } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import {
   CircleAlertIcon,
@@ -135,7 +136,10 @@ function EnvironmentNotifications({
     // Subagents are skipped below, so their requests notify through the thread above them.
     const subagentRequests = pendingSubagentRequestsByThread(threads);
     for (const rawThread of threads) {
-      if (rawThread.lineage.relationshipToParent === "subagent") continue;
+      // A side chat lives in its parent's card, so a notification has nowhere to open it.
+      if (rawThread.lineage.relationshipToParent === "subagent" || isSideChatThread(rawThread)) {
+        continue;
+      }
       const prior = previous.current.get(rawThread.id);
       const subagentRequest = subagentRequests.get(rawThread.id) ?? null;
       // The same object cannot produce a new notification.

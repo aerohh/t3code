@@ -57,6 +57,7 @@ import {
   type ScheduledTaskUpsertInput,
   type ServerProvider,
   ThreadId,
+  isSideChatThread,
 } from "@t3tools/contracts";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import * as Clock from "effect/Clock";
@@ -1115,7 +1116,7 @@ const make = Effect.gen(function* () {
       const shell = yield* threadManagement
         .getThreadShell(threadId)
         .pipe(Effect.mapError(threadManagementFailure));
-      if (shell === null || shell.deletedAt !== null) {
+      if (shell === null || shell.deletedAt !== null || isSideChatThread(shell)) {
         return yield* failure("thread_not_found", `Thread ${threadId} is no longer available.`);
       }
       const target = yield* threadManagement

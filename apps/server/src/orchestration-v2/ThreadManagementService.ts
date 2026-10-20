@@ -10,6 +10,7 @@ import type {
 import {
   type ChatAttachment,
   CommandId,
+  isSideChatThread,
   MessageId,
   OrchestrationV2StopWorkflowError,
   type OrchestrationV2StopWorkflowInput,
@@ -72,6 +73,7 @@ export function withCreationProvenance(
     case "thread.create":
     case "message.dispatch":
     case "thread.fork":
+    case "thread.side-chat.open":
     case "thread.merge_back":
     case "delegated_task.request":
       return { ...command, ...provenance };
@@ -95,6 +97,8 @@ export function existingThreadIdsForCommand(
       return [];
     case "thread.fork":
       return [command.sourceThreadId];
+    case "thread.side-chat.open":
+      return [command.parentThreadId];
     case "thread.merge_back":
       return command.sourceThreadId === command.targetThreadId
         ? [command.sourceThreadId]
@@ -781,7 +785,8 @@ const make = Effect.gen(function* () {
         snapshot.threads
           .filter(
             (thread) =>
-              input.includeSubagents || thread.lineage.relationshipToParent !== "subagent",
+              !isSideChatThread(thread) &&
+              (input.includeSubagents || thread.lineage.relationshipToParent !== "subagent"),
           )
           .toSorted(
             (left, right) =>

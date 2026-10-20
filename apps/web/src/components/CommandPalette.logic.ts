@@ -4,6 +4,7 @@ import {
   type EnvironmentId,
   type FilesystemBrowseEntry,
   type KeybindingCommand,
+  isSideChatThread,
   THREAD_JUMP_KEYBINDING_COMMANDS,
 } from "@t3tools/contracts";
 import { filterFilesystemBrowseEntries } from "@t3tools/client-runtime/state/filesystem";
@@ -312,6 +313,7 @@ export type BuildThreadActionItemsThread = Pick<
   | "worktreePath"
 > & {
   pullRequests?: SidebarThreadSummary["pullRequests"];
+  sideChat?: SidebarThreadSummary["sideChat"];
   updatedAt: string;
   latestUserMessageAt?: string | null;
 };
@@ -333,7 +335,7 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   limit?: number;
 }): CommandPaletteActionItem[] {
   const sortedThreads = sortThreads(
-    input.threads.filter((thread) => thread.archivedAt === null),
+    input.threads.filter((thread) => thread.archivedAt === null && !isSideChatThread(thread)),
     input.sortOrder,
   );
   const visibleThreads =

@@ -472,6 +472,7 @@ import {
 } from "./chat/PanelLayoutControls";
 import { expandedImageKey, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { ThreadDetailsPanel, type ThreadDetailsPanelProps } from "./chat/ThreadDetailsPanel";
+import { SideChatBackdrop, SideChatCard, useSideChatCard } from "./chat/SideChatCard";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import {
   type EnvironmentOption,
@@ -845,6 +846,8 @@ type ChatViewProps =
       onDiffPanelOpen?: () => void;
       reserveTitleBarControlInset?: boolean;
       forceExpandedMobileComposer?: boolean;
+      /** Only the timeline and composer, for the side chat card that floats over its parent chat. */
+      inSideChatCard?: boolean;
       routeKind: "server";
       draftId?: never;
     }
@@ -1696,6 +1699,7 @@ export default function ChatView(props: ChatViewProps) {
     reserveTitleBarControlInset = true,
     forceExpandedMobileComposer = false,
   } = props;
+  const inSideChatCard = props.routeKind === "server" && props.inSideChatCard === true;
   const canOperateThread = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
   const canOperateTerminal = useEnvironmentScope(environmentId, AuthTerminalOperateScope);
   const hasTerminalWriteAccess = () =>
@@ -1824,7 +1828,12 @@ export default function ChatView(props: ChatViewProps) {
   });
   const serverThreadProjection = useThreadProjection(routeThreadDetailRef);
   const serverProjection = serverThreadProjection?.projection ?? null;
-  const { side: paneSide, isActivePane, closePair } = useThreadPane();
+  const { side: paneSide, isActivePane: paneIsActive, closePair } = useThreadPane();
+  const sideChatCard = useSideChatCard(
+    inSideChatCard || serverThread === null ? null : routeThreadRef,
+  );
+  // The open side chat takes typing and pasting while it covers this chat's message box.
+  const isActivePane = paneIsActive && !sideChatCard.open;
   // Keys aimed at the page body belong to the active pane of a pair, not to both timelines.
   const readIsActivePane = useEffectEvent(() => isActivePane);
   const reportedModelSelection = serverProjection
@@ -1843,10 +1852,22 @@ export default function ChatView(props: ChatViewProps) {
     () => latestProviderTurnTokenUsage(serverProjection?.providerTurns ?? []),
     [serverProjection?.providerTurns],
   );
-  const serverVisibleTurnItems = useThreadVisibleTurnItems(routeThreadDetailRef);
+  const allServerVisibleTurnItems = useThreadVisibleTurnItems(routeThreadDetailRef);
+  // A side chat starts as a copy of its parent; the card shows only what was said after that.
+  const serverVisibleTurnItems = useMemo(
+    () =>
+      inSideChatCard
+        ? allServerVisibleTurnItems.filter((item) => item.visibility !== "inherited")
+        : allServerVisibleTurnItems,
+    [allServerVisibleTurnItems, inSideChatCard],
+  );
   const serverThreadHistory = useThreadHistory(routeThreadDetailRef);
   const threadHistoryControls = useMemo<MessagesTimelineHistoryControls | undefined>(() => {
-    if (routeThreadDetailRef === null || !shouldShowLoadEarlierControl(serverThreadHistory)) {
+    if (
+      inSideChatCard ||
+      routeThreadDetailRef === null ||
+      !shouldShowLoadEarlierControl(serverThreadHistory)
+    ) {
       return undefined;
     }
     return {
@@ -1863,7 +1884,7 @@ export default function ChatView(props: ChatViewProps) {
         });
       },
     };
-  }, [loadEarlierThreadHistory, routeThreadDetailRef, serverThreadHistory]);
+  }, [inSideChatCard, loadEarlierThreadHistory, routeThreadDetailRef, serverThreadHistory]);
   const committedServerMessageIds = useMemo(
     () => deriveCommittedServerUserMessageIds(serverVisibleTurnItems),
     [serverVisibleTurnItems],
@@ -3100,6 +3121,18 @@ export default function ChatView(props: ChatViewProps) {
     ? (activeEnvironment?.serverConfig ?? null)
     : (primaryEnvironment?.serverConfig ?? null);
   const providerStatuses = serverConfig?.providers ?? EMPTY_PROVIDERS;
+  const canStartOrShowSideChat =
+    !inSideChatCard &&
+    serverThread !== null &&
+    serverThread.sideChat === undefined &&
+    serverThread.archivedAt === null &&
+    serverThread.settledOverride !== "settled" &&
+    (canOperateThread || sideChatCard.sideChatThreadId !== null) &&
+    providerStatuses.some(
+      (provider) =>
+        provider.instanceId === serverThread.providerInstanceId &&
+        provider.driver === "claudeAgent",
+    );
   const selectedProviderByThreadId = composerActiveProvider ?? null;
   const threadProvider =
     activeThread?.modelSelection.instanceId ??
@@ -3111,7 +3144,8 @@ export default function ChatView(props: ChatViewProps) {
     threadProvider,
     providers: providerStatuses,
   });
-  const modelPickerLockedProvider = supportsProviderSwitchingViaHandoff ? null : lockedProvider;
+  const modelPickerLockedProvider =
+    supportsProviderSwitchingViaHandoff && !inSideChatCard ? null : lockedProvider;
   const pullRequestsCapabilityKnown = serverConfig !== null;
   const supportsPullRequests = serverConfig?.environment.capabilities.pullRequests === true;
   const attachmentEnvironmentConfig = environmentById.get(environmentId)?.serverConfig ?? null;
@@ -5972,6 +6006,7 @@ export default function ChatView(props: ChatViewProps) {
     useRightPanelStore.getState().toggleThreadPanel(activeThreadRef, threadPanelPresentation);
   };
   const toggleThreadPanelStable = useStableCallback(toggleThreadPanel);
+  const toggleSideChatCardStable = useStableCallback(() => void sideChatCard.toggle());
   // A thread started for a link the OS opened shows its browser maximized, like a browser window.
   useEffect(() => {
     if (!canMaximizeRightPanel) return;
@@ -6732,6 +6767,16 @@ export default function ChatView(props: ChatViewProps) {
   const focusComposerIfActivePane = useEffectEvent(() => {
     if (isActivePane) focusComposerStable();
   });
+  const sideChatWasOpenRef = useRef(false);
+  useEffect(() => {
+    if (sideChatCard.open) {
+      sideChatWasOpenRef.current = true;
+      return;
+    }
+    if (!sideChatWasOpenRef.current) return;
+    sideChatWasOpenRef.current = false;
+    focusComposerIfActivePane();
+  }, [sideChatCard.open]);
   useEffect(() => {
     if (!activeThread?.id || terminalUiState.terminalOpen) return;
     const frame = window.requestAnimationFrame(() => {
@@ -11100,6 +11145,9 @@ export default function ChatView(props: ChatViewProps) {
     onToggleTerminal: toggleTerminalVisibilityStable,
     onToggleThreadPanel: toggleThreadPanelStable,
     onToggleRightPanel: toggleRightPanelStable,
+    sideChatAvailable: canStartOrShowSideChat,
+    sideChatOpen: sideChatCard.open,
+    onToggleSideChat: toggleSideChatCardStable,
   } satisfies PanelLayoutControlsProps;
   const panelToggleControls = (
     <PanelLayoutControls
@@ -11194,7 +11242,7 @@ export default function ChatView(props: ChatViewProps) {
           ) : null}
         </WizardPopup>
       </Dialog>
-      {rightPanelControlsAtRoot ? panelLayoutControls : null}
+      {rightPanelControlsAtRoot && !inSideChatCard ? panelLayoutControls : null}
       <div
         className={cn(
           "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
@@ -11203,45 +11251,51 @@ export default function ChatView(props: ChatViewProps) {
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
       >
         {/* Top bar */}
-        <header
-          ref={threadPanelPopoverAnchorRef}
-          data-chat-header
-          className={cn(
-            "relative bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[padding-left] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out",
-            isElectron
-              ? cn(
-                  "drag-region flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center px-3 sm:px-5",
-                  reserveTitleBarControlInset &&
-                    !inlineRightPanelOwnsTitleBar &&
-                    "wco:pr-(--workspace-native-controls-inset)",
-                )
-              : "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center pl-(--workspace-gutter-start) pr-(--workspace-gutter-end)",
-            paneSide !== "right" && COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
-          )}
-        >
-          {isElectron && rightPanelControlsAtRoot ? (
-            <span
-              aria-hidden
-              className="pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] w-28 [-webkit-app-region:no-drag]"
+        {inSideChatCard ? null : (
+          <header
+            ref={threadPanelPopoverAnchorRef}
+            data-chat-header
+            className={cn(
+              "relative bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[padding-left] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out",
+              isElectron
+                ? cn(
+                    "drag-region flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center px-3 sm:px-5",
+                    reserveTitleBarControlInset &&
+                      !inlineRightPanelOwnsTitleBar &&
+                      "wco:pr-(--workspace-native-controls-inset)",
+                  )
+                : "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center pl-(--workspace-gutter-start) pr-(--workspace-gutter-end)",
+              paneSide !== "right" && COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
+            )}
+          >
+            {isElectron && rightPanelControlsAtRoot ? (
+              <span
+                aria-hidden
+                className={cn(
+                  "pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] [-webkit-app-region:no-drag]",
+                  canStartOrShowSideChat ? "w-37" : "w-28",
+                )}
+              />
+            ) : null}
+            {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
+            {inlineRightPanelOwnsTitleBar ? threadPanelHeaderControl : null}
+            <ChatHeader
+              activeThreadEnvironmentId={activeThread.environmentId}
+              activeThreadId={activeThread.id}
+              isServerThread={isServerThread}
+              activeThreadTitle={activeThread.title}
+              activeProject={activeProject ?? null}
+              parentThreadLink={parentThreadLink}
+              onOpenThread={onOpenRelatedThreadStable}
+              rightPanelOpen={inlineRightPanelOwnsTitleBar}
+              sideChatControlShown={canStartOrShowSideChat}
+              onNewThreadInProject={handleNewThreadInActiveProjectStable}
+              {...(activeDraftLogicalProjectKey
+                ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
+                : {})}
             />
-          ) : null}
-          {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
-          {inlineRightPanelOwnsTitleBar ? threadPanelHeaderControl : null}
-          <ChatHeader
-            activeThreadEnvironmentId={activeThread.environmentId}
-            activeThreadId={activeThread.id}
-            isServerThread={isServerThread}
-            activeThreadTitle={activeThread.title}
-            activeProject={activeProject ?? null}
-            parentThreadLink={parentThreadLink}
-            onOpenThread={onOpenRelatedThreadStable}
-            rightPanelOpen={inlineRightPanelOwnsTitleBar}
-            onNewThreadInProject={handleNewThreadInActiveProjectStable}
-            {...(activeDraftLogicalProjectKey
-              ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
-              : {})}
-          />
-        </header>
+          </header>
+        )}
 
         {/* Main content area with optional plan sidebar */}
         <div className="relative flex min-h-0 min-w-0 flex-1">
@@ -11252,7 +11306,10 @@ export default function ChatView(props: ChatViewProps) {
               progressive: serverConfig?.threadFindProgressive === true,
               thread: activeThreadRef,
               enabled:
-                isServerThread && serverConfig?.threadFind === true && !paintOnlyDisplayedTimeline,
+                isServerThread &&
+                serverConfig?.threadFind === true &&
+                !paintOnlyDisplayedTimeline &&
+                !inSideChatCard,
               content: serverProjection ?? undefined,
             }}
             controlsRef={threadFindControlsRef}
@@ -11380,10 +11437,17 @@ export default function ChatView(props: ChatViewProps) {
                 }
                 onOpenThread={onOpenRelatedThreadStable}
                 parentThreadLink={paintOnlyDisplayedTimeline ? null : parentThreadLink}
-                onForkFromRun={paintOnlyDisplayedTimeline ? async () => {} : onForkFromRunStable}
+                {...(inSideChatCard
+                  ? {}
+                  : {
+                      onForkFromRun: paintOnlyDisplayedTimeline
+                        ? async () => {}
+                        : onForkFromRunStable,
+                    })}
                 onRollbackCheckpoint={onTimelineRollbackCheckpointStable}
+                // Rewinding a side chat could restore files, and side chats never change files.
                 supportsConversationRollback={
-                  !paintOnlyDisplayedTimeline && supportsConversationRollback
+                  !paintOnlyDisplayedTimeline && !inSideChatCard && supportsConversationRollback
                 }
                 onRevertToTurnCount={
                   paintOnlyDisplayedTimeline ? noopHeldRevert : onRevertTimelineTurnStable
@@ -11456,6 +11520,8 @@ export default function ChatView(props: ChatViewProps) {
               )}
             </div>
 
+            {inSideChatCard ? null : <SideChatBackdrop open={sideChatCard.open} />}
+
             {/* Input bar — centered for an empty draft, docked after sending. */}
             <div
               ref={setComposerOverlayElement}
@@ -11496,6 +11562,7 @@ export default function ChatView(props: ChatViewProps) {
                   <div
                     ref={draftHeroTransition.composerAnchorRef}
                     className="relative z-10"
+                    inert={sideChatCard.open}
                     style={
                       forceExpandedMobileComposer
                         ? { viewTransitionName: MOBILE_COMPOSER_VIEW_TRANSITION_NAME }
@@ -11690,6 +11757,7 @@ export default function ChatView(props: ChatViewProps) {
                               getModelDisabledReason={getModelDisabledReason}
                               toggleInteractionMode={toggleInteractionModeStable}
                               handleRuntimeModeChange={handleRuntimeModeChangeStable}
+                              inSideChatCard={inSideChatCard}
                               handleInteractionModeChange={handleInteractionModeChangeStable}
                               focusComposer={focusComposerStable}
                               scheduleComposerFocus={scheduleComposerFocusStable}
@@ -11772,9 +11840,39 @@ export default function ChatView(props: ChatViewProps) {
                     </ComposerSurface.Shell>
                     <div
                       aria-hidden
-                      className="h-[calc(env(safe-area-inset-bottom)+1rem)] sm:h-[calc(env(safe-area-inset-bottom)+1.25rem)]"
+                      className={
+                        inSideChatCard
+                          ? "h-2"
+                          : "h-[calc(env(safe-area-inset-bottom)+1rem)] sm:h-[calc(env(safe-area-inset-bottom)+1.25rem)]"
+                      }
                     />
                   </div>
+                  {inSideChatCard ? null : (
+                    <SideChatCard
+                      open={sideChatCard.open}
+                      parentNeedsAttention={
+                        activePendingApproval !== null ||
+                        activePendingUserInput !== null ||
+                        activeThreadShell?.hasPendingUserInput === true
+                      }
+                      sideChatRef={
+                        sideChatCard.sideChatThreadId === null
+                          ? null
+                          : scopeThreadRef(environmentId, sideChatCard.sideChatThreadId)
+                      }
+                      onClose={sideChatCard.close}
+                    >
+                      {sideChatCard.sideChatThreadId === null ? null : (
+                        <ChatView
+                          key={sideChatCard.sideChatThreadId}
+                          environmentId={environmentId}
+                          threadId={sideChatCard.sideChatThreadId}
+                          routeKind="server"
+                          inSideChatCard
+                        />
+                      )}
+                    </SideChatCard>
+                  )}
                 </div>
               </div>
             </div>
@@ -11783,6 +11881,7 @@ export default function ChatView(props: ChatViewProps) {
               <PreviewSessionSync threadRef={activeThreadRef} />
             ) : null}
             {activeThreadRef &&
+            !inSideChatCard &&
             activePreviewMiniPlayer &&
             previewMiniPlayerVisible &&
             (activePreviewMiniPlayer.source.kind === "device" || canOperatePreview) ? (
@@ -11824,7 +11923,7 @@ export default function ChatView(props: ChatViewProps) {
               </AlertDialogPopup>
             </AlertDialog>
 
-            <ThreadDetailsPanel {...threadDetailsPanelProps} />
+            {inSideChatCard ? null : <ThreadDetailsPanel {...threadDetailsPanelProps} />}
 
             {pullRequestDialogState ? (
               <PullRequestThreadDialog
@@ -11847,27 +11946,29 @@ export default function ChatView(props: ChatViewProps) {
         </div>
         {/* end horizontal flex container */}
 
-        {mountedTerminalThreadRefs.map(({ key: mountedThreadKey, threadRef: mountedThreadRef }) => (
-          <PersistentThreadTerminalDrawer
-            key={mountedThreadKey}
-            threadRef={mountedThreadRef}
-            threadId={mountedThreadRef.threadId}
-            active={mountedThreadKey === activeThreadKey}
-            launchContext={
-              mountedThreadKey === activeThreadKey ? (activeTerminalLaunchContext ?? null) : null
-            }
-            focusRequestId={mountedThreadKey === activeThreadKey ? terminalFocusRequestId : 0}
-            splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
-            splitVerticalShortcutLabel={splitTerminalVerticalShortcutLabel ?? undefined}
-            newShortcutLabel={newTerminalShortcutLabel ?? undefined}
-            closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
-            keybindings={keybindings}
-            onAddTerminalContext={addTerminalContextToDraft}
-          />
-        ))}
+        {(inSideChatCard ? [] : mountedTerminalThreadRefs).map(
+          ({ key: mountedThreadKey, threadRef: mountedThreadRef }) => (
+            <PersistentThreadTerminalDrawer
+              key={mountedThreadKey}
+              threadRef={mountedThreadRef}
+              threadId={mountedThreadRef.threadId}
+              active={mountedThreadKey === activeThreadKey}
+              launchContext={
+                mountedThreadKey === activeThreadKey ? (activeTerminalLaunchContext ?? null) : null
+              }
+              focusRequestId={mountedThreadKey === activeThreadKey ? terminalFocusRequestId : 0}
+              splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
+              splitVerticalShortcutLabel={splitTerminalVerticalShortcutLabel ?? undefined}
+              newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+              closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
+              keybindings={keybindings}
+              onAddTerminalContext={addTerminalContextToDraft}
+            />
+          ),
+        )}
       </div>
 
-      {rightPanelPresent && !shouldUsePlanSidebarSheet && activeThreadRef ? (
+      {rightPanelPresent && !shouldUsePlanSidebarSheet && activeThreadRef && !inSideChatCard ? (
         <RightPanelTabs
           mode="inline"
           open={rightPanelOpen}
@@ -11913,7 +12014,7 @@ export default function ChatView(props: ChatViewProps) {
           {rightPanelContent}
         </RightPanelTabs>
       ) : null}
-      {rightPanelPresent && shouldUsePlanSidebarSheet && activeThreadRef ? (
+      {rightPanelPresent && shouldUsePlanSidebarSheet && activeThreadRef && !inSideChatCard ? (
         <RightPanelSheet
           animationDurationMs={panelAnimationsActive ? panelAnimationDurationMs : 0}
           open={rightPanelOpen}

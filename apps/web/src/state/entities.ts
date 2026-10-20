@@ -9,7 +9,7 @@ import {
   type EnvironmentThreadStatus,
   type ThreadHistoryMeta,
 } from "@t3tools/client-runtime/state/threads";
-import type { ScopedProjectRef, ScopedThreadRef, ServerConfig } from "@t3tools/contracts";
+import type { ScopedProjectRef, ScopedThreadRef, ServerConfig, ThreadId } from "@t3tools/contracts";
 import type { EnvironmentId, OrchestrationV2ProjectedTurnItem } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -120,6 +120,18 @@ export function useThreadShell(ref: ScopedThreadRef | null): EnvironmentThreadSh
 export function useChildThreadInputs(ref: ScopedThreadRef | null) {
   return useAtomValue(
     ref === null ? EMPTY_THREAD_SHELLS_ATOM : environmentThreadShells.childThreadInputsAtom(ref),
+  );
+}
+
+const EMPTY_SIDE_CHAT_THREAD_ID_ATOM = Atom.make<ThreadId | null>(null).pipe(
+  Atom.withLabel("web-side-chat-thread-id:empty"),
+);
+
+export function useSideChatThreadId(parentRef: ScopedThreadRef | null): ThreadId | null {
+  return useAtomValue(
+    parentRef === null
+      ? EMPTY_SIDE_CHAT_THREAD_ID_ATOM
+      : environmentThreadShells.sideChatThreadIdAtom(parentRef),
   );
 }
 

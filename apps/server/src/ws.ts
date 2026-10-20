@@ -1844,7 +1844,8 @@ const layerWsRpc = (
                     command.type === "delegated_task.wake-policy" ||
                     command.type === "delegated_task.completion-delivery.acknowledge" ||
                     command.type === "delegated_task.completion-delivery.dispose" ||
-                    command.type === "thread.created.record"
+                    command.type === "thread.created.record" ||
+                    command.type === "thread.side-chat.open"
                   ? command.parentThreadId
                   : command.threadId,
             ...(command.type === "thread.fork" || command.type === "thread.merge_back"

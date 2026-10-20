@@ -10,6 +10,7 @@ import {
   selectActiveRightPanel,
   selectActiveRightPanelSurface,
   selectSelectedRightPanelSurface,
+  selectSideChatCardOpen,
   selectThreadPanelOpen,
   selectThreadPanelVisibility,
   selectThreadRightPanelState,
@@ -595,6 +596,37 @@ describe("rightPanelStore", () => {
         refB,
       ),
     ).toEqual({ inlineOpen: true, popoverOpen: false });
+  });
+
+  it("shows one card at a time in the details corner", () => {
+    const store = useRightPanelStore.getState();
+    store.setThreadPanelOpen(refA, "popover", true);
+    store.setSideChatCardOpen(refA, true);
+
+    let visibility = useRightPanelStore.getState().threadPanelVisibilityByThreadKey;
+    expect(selectSideChatCardOpen(visibility, refA)).toBe(true);
+    expect(selectThreadPanelOpen(visibility, refA, "inline")).toBe(false);
+    expect(selectThreadPanelOpen(visibility, refA, "popover")).toBe(false);
+
+    // The pinned details card comes back on its own once the side chat closes.
+    store.setSideChatCardOpen(refA, false);
+    visibility = useRightPanelStore.getState().threadPanelVisibilityByThreadKey;
+    expect(selectThreadPanelOpen(visibility, refA, "inline")).toBe(true);
+    expect(selectThreadPanelOpen(visibility, refA, "popover")).toBe(false);
+
+    // Toggling details while the side chat shows swaps the cards instead of hiding details.
+    store.setSideChatCardOpen(refA, true);
+    store.toggleThreadPanel(refA, "inline");
+    visibility = useRightPanelStore.getState().threadPanelVisibilityByThreadKey;
+    expect(selectSideChatCardOpen(visibility, refA)).toBe(false);
+    expect(selectThreadPanelOpen(visibility, refA, "inline")).toBe(true);
+
+    store.setSideChatCardOpen(refA, true);
+    store.setThreadPanelOpen(refA, "popover", true);
+    visibility = useRightPanelStore.getState().threadPanelVisibilityByThreadKey;
+    expect(selectSideChatCardOpen(visibility, refA)).toBe(false);
+    expect(selectThreadPanelOpen(visibility, refA, "popover")).toBe(true);
+    expect(selectSideChatCardOpen(visibility, refB)).toBe(false);
   });
 
   it("closes the popover atomically when the real right panel opens", () => {

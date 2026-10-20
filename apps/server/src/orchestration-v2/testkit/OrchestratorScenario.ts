@@ -147,6 +147,7 @@ function commandThreadIds(command: OrchestrationV2Command): ReadonlyArray<Thread
     case "thread.unpin":
     case "thread.pin.reorder":
     case "thread.active.reorder":
+    case "thread.side-chat.read-files.set":
     case "thread.visit":
     case "thread.mark-unread":
     case "thread.metadata.update":
@@ -187,6 +188,8 @@ function commandThreadIds(command: OrchestrationV2Command): ReadonlyArray<Thread
     case "thread.fork":
     case "thread.merge_back":
       return [command.sourceThreadId, command.targetThreadId];
+    case "thread.side-chat.open":
+      return [command.parentThreadId, command.sideChatThreadId];
   }
 }
 

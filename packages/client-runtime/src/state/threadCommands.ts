@@ -29,6 +29,8 @@ import {
   type MarkThreadUnreadInput,
   type ForkThreadFromRunInput,
   type MergeThreadBackInput,
+  type OpenSideChatInput,
+  type SetSideChatReadFilesInput,
   type PromoteQueuedRunInput,
   type ReorderQueuedRunInput,
   type LinkThreadPullRequestInput,
@@ -63,6 +65,8 @@ import {
   forkThreadFromRun,
   markThreadUnread,
   mergeThreadBack,
+  openSideChat,
+  setSideChatReadFiles,
   promoteQueuedRun,
   reorderQueuedRun,
   resumeThreadQueue,
@@ -110,6 +114,8 @@ export type {
   MarkThreadUnreadInput,
   ForkThreadFromRunInput,
   MergeThreadBackInput,
+  OpenSideChatInput,
+  SetSideChatReadFilesInput,
   PromoteQueuedRunInput,
   ReorderQueuedRunInput,
   LinkThreadPullRequestInput,
@@ -335,6 +341,21 @@ export function createThreadEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) =>
           JSON.stringify([environmentId, input.sourceThreadId, input.targetThreadId]),
       },
+    }),
+    openSideChat: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:open-side-chat",
+      execute: (input: OpenSideChatInput) => openSideChat(input),
+      scheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.parentThreadId]),
+      },
+    }),
+    setSideChatReadFiles: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:set-side-chat-read-files",
+      execute: (input: SetSideChatReadFilesInput) => setSideChatReadFiles(input),
+      scheduler,
+      concurrency,
     }),
     resumeThreadQueue: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:resume-queue",

@@ -1,6 +1,7 @@
 import type { ProjectionRecordField } from "../orchestration-v2/ProjectionStore.ts";
 import {
   CommandId,
+  isSideChatThread,
   OrchestratorMcpFailure,
   type ProjectId,
   type ProviderInteractionMode,
@@ -179,7 +180,7 @@ export const readThread = Effect.fn("mcp.readThread")(function* <
   const context = yield* readCaller();
   const targetId = yield* resolveThreadId(context, threadId);
   const shell = yield* context.threads.getThreadShell(targetId).pipe(Effect.mapError(unavailable));
-  if (shell === null || shell.deletedAt !== null) {
+  if (shell === null || shell.deletedAt !== null || isSideChatThread(shell)) {
     return yield* new OrchestratorMcpFailure({
       code: "thread_not_found",
       message: "The thread was not found.",

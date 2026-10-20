@@ -222,6 +222,15 @@ export interface ForkThreadFromRunInput extends CommandMetadata {
   readonly title?: string;
 }
 
+export interface OpenSideChatInput extends CommandMetadata {
+  readonly parentThreadId: ThreadId;
+  readonly sideChatThreadId: ThreadId;
+}
+
+export interface SetSideChatReadFilesInput extends ThreadCommandInput {
+  readonly canReadFiles: boolean;
+}
+
 export interface MergeThreadBackInput extends CommandMetadata {
   readonly sourceThreadId: ThreadId;
   readonly targetThreadId: ThreadId;
@@ -965,6 +974,30 @@ export const forkThreadFromRun = Effect.fn("EnvironmentCommands.forkThreadFromRu
     ...(input.title === undefined ? {} : { title: input.title }),
   });
 });
+
+export const openSideChat = Effect.fn("EnvironmentCommands.openSideChat")(function* (
+  input: OpenSideChatInput,
+) {
+  return yield* dispatch({
+    type: "thread.side-chat.open",
+    commandId: yield* allocateCommandId(input),
+    createdBy: "user",
+    creationSource: input.creationSource ?? "web",
+    parentThreadId: input.parentThreadId,
+    sideChatThreadId: input.sideChatThreadId,
+  });
+});
+
+export const setSideChatReadFiles = Effect.fn("EnvironmentCommands.setSideChatReadFiles")(
+  function* (input: SetSideChatReadFilesInput) {
+    return yield* dispatch({
+      type: "thread.side-chat.read-files.set",
+      commandId: yield* allocateCommandId(input),
+      threadId: input.threadId,
+      canReadFiles: input.canReadFiles,
+    });
+  },
+);
 
 export const mergeThreadBack = Effect.fn("EnvironmentCommands.mergeThreadBack")(function* (
   input: MergeThreadBackInput,
