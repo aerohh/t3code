@@ -211,7 +211,8 @@ interface MessagesTimelineProps {
   } | null;
   /** Set on a workflow coordinator's thread: its script message renders as this opening. */
   workflowOpening?: WorkflowOpening | null;
-  onForkFromRun: (input: {
+  /** Omitted where forking makes no sense, which hides the fork button. */
+  onForkFromRun?: (input: {
     readonly sourceThreadId: ThreadId;
     readonly runId: RunId;
   }) => Promise<void>;

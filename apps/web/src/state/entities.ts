@@ -150,6 +150,18 @@ export function useChildThreadInputs(ref: ScopedThreadRef | null) {
   );
 }
 
+const EMPTY_SIDE_CHAT_THREAD_ID_ATOM = Atom.make<ThreadId | null>(null).pipe(
+  Atom.withLabel("web-side-chat-thread-id:empty"),
+);
+
+export function useSideChatThreadId(parentRef: ScopedThreadRef | null): ThreadId | null {
+  return useAtomValue(
+    parentRef === null
+      ? EMPTY_SIDE_CHAT_THREAD_ID_ATOM
+      : environmentThreadShells.sideChatThreadIdAtom(parentRef),
+  );
+}
+
 export function useThreadProjection(ref: ScopedThreadRef | null): EnvironmentThread | null {
   return useAtomValue(
     ref === null ? EMPTY_THREAD_PROJECTION_ATOM : environmentThreadDetails.threadAtom(ref),

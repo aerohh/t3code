@@ -6,6 +6,7 @@ import {
   ProviderInstanceId,
   ThreadId,
   type OrchestrationV2DomainEvent,
+  type OrchestrationV2SideChat,
 } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as DateTime from "effect/DateTime";
@@ -59,7 +60,11 @@ const createProject = (projectId: ProjectId) =>
 const thread = (
   threadId: ThreadId,
   projectId: ProjectId,
-  overrides: { readonly archivedAt?: DateTime.Utc; readonly deletedAt?: DateTime.Utc } = {},
+  overrides: {
+    readonly archivedAt?: DateTime.Utc;
+    readonly deletedAt?: DateTime.Utc;
+    readonly sideChat?: OrchestrationV2SideChat;
+  } = {},
 ): OrchestrationV2DomainEvent => ({
   id: EventId.make(`created:${threadId}`),
   type: "thread.created",
@@ -80,6 +85,7 @@ const thread = (
     worktreePath: null,
     activeProviderThreadId: null,
     lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+    ...(overrides.sideChat === undefined ? {} : { sideChat: overrides.sideChat }),
     forkedFrom: null,
     createdAt: at(0),
     updatedAt: at(0),
@@ -163,6 +169,8 @@ it.layer(layerTest)("ThreadSearch", (it) => {
         message(ThreadId.make("thread:deleted"), "deleted", "user", "needle deleted"),
         thread(ThreadId.make("thread:orphaned"), deletedProject),
         message(ThreadId.make("thread:orphaned"), "orphaned", "user", "needle orphaned"),
+        thread(ThreadId.make("thread:side-chat"), project, { sideChat: {} }),
+        message(ThreadId.make("thread:side-chat"), "side-chat", "user", "needle side chat"),
       ];
       yield* Effect.forEach(events, projections.apply, { discard: true });
 

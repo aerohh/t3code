@@ -343,6 +343,7 @@ const COMPOSER_SCROLL_GESTURE_RESET_MS = 120;
 const COMPOSER_RESTING_TRANSITION_CLEANUP_BUFFER_MS = 50;
 const COMPOSER_RESTING_TRANSITION_EASING = "cubic-bezier(0.32, 0.72, 0, 1)";
 const COMPOSER_RESTING_CONTROLS_ARRIVAL_DRIFT_PX = 4;
+const SIDE_CHAT_COMPOSER_RESIZE_MS = 200;
 
 function useComposerRestingTransition(
   isCollapsed: boolean,
@@ -944,7 +945,9 @@ function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children:
   );
 }
 import { toastManager } from "../ui/toast";
-import { CircleAlertIcon, PlayIcon, ShieldIcon } from "lucide-react";
+import { CircleAlertIcon, PlayIcon, ShieldIcon, SlidersHorizontalIcon } from "lucide-react";
+import { Toggle } from "../ui/toggle";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { proposedPlanTitle } from "@t3tools/shared/proposedPlanText";
 import { hasProviderSetup } from "./ProviderStatusBanner";
 import {
@@ -1322,6 +1325,11 @@ export interface ChatComposerProps {
   toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
   handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
+  /**
+   * The side chat's box: no access or plan controls, which a side chat ignores, and the model
+   * and effort pickers wait behind a button.
+   */
+  inSideChatCard?: boolean;
 
   focusComposer: () => void;
   scheduleComposerFocus: () => void;
@@ -1661,6 +1669,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     getModelDisabledReason,
     toggleInteractionMode,
     handleRuntimeModeChange,
+    inSideChatCard = false,
     handleInteractionModeChange,
     focusComposer,
     scheduleComposerFocus,
@@ -4293,18 +4302,27 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     composerSubmissionError !== null ||
     providerInputSubmissionError !== null ||
     hasImageAttachmentAttention;
-  const isComposerResting = shouldUseRestingComposerLayout({
-    isExistingThread: routeKind === "server" && activeThreadId !== null,
-    isMobileViewport,
-    isScrollCollapsed: isComposerScrollCollapsed,
-    hasExpandedChrome: composerHasExpandedChrome,
-    hasMultilinePrompt,
-    timelineOverflows,
-  });
+  const [sideChatPickersShown, setSideChatPickersShown] = useState(false);
+  // The side chat's box rests on one line whenever its pickers are hidden, not only after a scroll.
+  const isComposerResting = inSideChatCard
+    ? !sideChatPickersShown &&
+      !isMobileViewport &&
+      !hasMultilinePrompt &&
+      !composerHasExpandedChrome
+    : shouldUseRestingComposerLayout({
+        isExistingThread: routeKind === "server" && activeThreadId !== null,
+        isMobileViewport,
+        isScrollCollapsed: isComposerScrollCollapsed,
+        hasExpandedChrome: composerHasExpandedChrome,
+        hasMultilinePrompt,
+        timelineOverflows,
+      });
   const expandedComposerImages = isComposerResting
     ? standaloneComposerImages.filter((image) => pendingSnapShotIdSet.has(image.id))
     : standaloneComposerImages;
-  const composerControlsCollapsed = isComposerResting || isComposerCollapsedMobile;
+  // A resting side chat has no pickers to fold into a strip.
+  const composerControlsCollapsed =
+    (isComposerResting && !inSideChatCard) || isComposerCollapsedMobile;
   const showInlineRestingControls = composerControlsCollapsed && restingControlsHost === null;
   const composerControlsVisibleInStrip =
     composerControlsCollapsed && restingControlsHost !== null && restingControlsVisible;
@@ -4347,13 +4365,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ) : null;
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
+  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  // The side chat's picker button always animates, like its card, even with panel motion off.
+  const sideChatResizeAnimates = inSideChatCard && !panelAnimationsActive && !prefersReducedMotion;
   const composerMainSurfaceRef = useComposerRestingTransition(
-    composerControlsCollapsed,
+    // The transition keys off this flag, and a side chat folds its row without collapsing controls.
+    composerControlsCollapsed || (inSideChatCard && isComposerResting),
     isComposerResting,
     restingComposerControlsRef,
     onComposerOverlayHeightChange,
-    panelAnimationsActive,
-    panelAnimationDurationMs,
+    panelAnimationsActive || sideChatResizeAnimates,
+    sideChatResizeAnimates ? SIDE_CHAT_COMPOSER_RESIZE_MS : panelAnimationDurationMs,
   );
   const canTrackComposerScrollGesture =
     routeKind === "server" && activeThreadId !== null && !isMobileViewport;
@@ -4584,6 +4606,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       <CircleAlertIcon className="size-4" />
       {providerSetupInstanceId ? "Open provider settings" : "No provider available"}
     </ComposerControl>
+  ) : inSideChatCard ? (
+    sideChatPickersShown ? (
+      <>
+        {composerModelPicker}
+        {providerTraitsPicker ? (
+          <>
+            <ComposerControlSeparator size={composerControlsCollapsed ? "xs" : "sm"} />
+            {restingProviderTraitsPicker}
+          </>
+        ) : null}
+      </>
+    ) : null
   ) : (
     <>
       {composerControlsCollapsed &&
@@ -6275,6 +6309,27 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
+                  {inSideChatCard ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Toggle
+                            variant="ghost"
+                            size="sm"
+                            pressed={sideChatPickersShown}
+                            onPressedChange={setSideChatPickersShown}
+                            onPointerDown={(event) => event.preventDefault()}
+                            aria-label="Show model and effort"
+                          />
+                        }
+                      >
+                        <SlidersHorizontalIcon />
+                      </TooltipTrigger>
+                      <TooltipPopup>
+                        {sideChatPickersShown ? "Hide model and effort" : "Show model and effort"}
+                      </TooltipPopup>
+                    </Tooltip>
+                  ) : null}
                   {composerAttachButton}
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}

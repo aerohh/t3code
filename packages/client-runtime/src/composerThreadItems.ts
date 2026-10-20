@@ -1,4 +1,10 @@
-import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  OrchestrationV2SideChat,
+  ScopedThreadRef,
+  ThreadId,
+} from "@t3tools/contracts";
+import { isSideChatThread } from "@t3tools/contracts";
 
 const COMPOSER_THREAD_RESULT_LIMIT = 5;
 
@@ -8,6 +14,7 @@ export interface ComposerThreadCandidate {
   readonly title: string;
   readonly updatedAt: string;
   readonly archivedAt: string | null;
+  readonly sideChat?: OrchestrationV2SideChat | undefined;
 }
 
 export interface ComposerThreadItem {
@@ -36,6 +43,7 @@ export function matchComposerThreadItems(input: {
         shell.environmentId === input.environmentId &&
         shell.id !== input.excludeThreadId &&
         shell.archivedAt === null &&
+        !isSideChatThread(shell) &&
         shell.title.toLowerCase().includes(query),
     )
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))

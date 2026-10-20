@@ -47,6 +47,8 @@ interface ChatHeaderProps {
   parentThreadLink: { threadId: ThreadId; title: string } | null;
   onOpenThread: (threadId: ThreadId) => void;
   rightPanelOpen: boolean;
+  /** The side chat toggle sits in the same cluster, so the title leaves room for it too. */
+  sideChatControlShown?: boolean;
   onNewThreadInProject: () => void;
   onOpenProjectSettings?: (() => void) | undefined;
 }
@@ -75,6 +77,7 @@ export const ChatHeader = memo(function ChatHeader({
   parentThreadLink,
   onOpenThread,
   rightPanelOpen,
+  sideChatControlShown = false,
   onNewThreadInProject,
   onOpenProjectSettings,
 }: ChatHeaderProps) {
@@ -271,7 +274,17 @@ export const ChatHeader = memo(function ChatHeader({
       ref={breadcrumbContainerRef}
       className={cn(
         "flex min-w-0 flex-1 items-center gap-2 sm:gap-3",
-        rightPanelOpen ? "pr-10" : paneSide === "right" ? "pr-32" : "pr-24",
+        rightPanelOpen
+          ? sideChatControlShown
+            ? "pr-20"
+            : "pr-10"
+          : paneSide === "right"
+            ? sideChatControlShown
+              ? "pr-42"
+              : "pr-32"
+            : sideChatControlShown
+              ? "pr-34"
+              : "pr-24",
       )}
       onContextMenu={handleHeaderContextMenu}
     >

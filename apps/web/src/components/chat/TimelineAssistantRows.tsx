@@ -20,7 +20,12 @@ import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
 import { useV2ItemSupport } from "../../state/v2ItemSupport";
-import { TimelineRowCtx, TimelineRowActivityCtx, type TimelineRow } from "./timelineRowContext";
+import {
+  TimelineRowCtx,
+  TimelineRowActivityCtx,
+  type TimelineRow,
+  type TimelineRowSharedState,
+} from "./timelineRowContext";
 import { MESSAGE_HEADING_LEVEL, MessageAuthorHeading } from "./TimelineRowParts";
 
 export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
@@ -75,8 +80,10 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
 
 function AssistantForkButton({
   projectedItem,
+  onForkFromRun,
 }: {
   readonly projectedItem: NonNullable<Extract<TimelineRow, { kind: "message" }>["projectedItem"]>;
+  readonly onForkFromRun: NonNullable<TimelineRowSharedState["onForkFromRun"]>;
 }) {
   const ctx = use(TimelineRowCtx);
   const [busy, setBusy] = useState(false);
@@ -104,9 +111,9 @@ function AssistantForkButton({
             disabled={busy}
             onClick={() => {
               setBusy(true);
-              void ctx
-                .onForkFromRun({ sourceThreadId: projectedItem.sourceThreadId, runId })
-                .finally(() => setBusy(false));
+              void onForkFromRun({ sourceThreadId: projectedItem.sourceThreadId, runId }).finally(
+                () => setBusy(false),
+              );
             }}
             aria-label="Fork from this response"
           />
@@ -175,8 +182,8 @@ function AssistantMessageMeta({
         showCopyButton={showCopyButton}
         streaming={copyStreaming}
       />
-      {projectedItem?.item.type === "assistant_message" ? (
-        <AssistantForkButton projectedItem={projectedItem} />
+      {projectedItem?.item.type === "assistant_message" && ctx.onForkFromRun ? (
+        <AssistantForkButton projectedItem={projectedItem} onForkFromRun={ctx.onForkFromRun} />
       ) : null}
       {!message.streaming && (
         <Tooltip>

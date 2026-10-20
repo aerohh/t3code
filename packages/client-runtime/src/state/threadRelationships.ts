@@ -4,6 +4,7 @@ import {
   type OrchestrationV2ThreadShell,
   type ThreadId,
 } from "@t3tools/contracts";
+import { isSideChatThread } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
 export type ThreadRelationshipKind = "parent" | "fork" | "subagent" | "transfer";
@@ -52,6 +53,8 @@ export function deriveThreadRelationshipGraph(input: {
 }): ThreadRelationshipGraph {
   const threadsById = new Map<ThreadId, OrchestrationV2ThreadShell>();
   for (const thread of input.threads) {
+    // A side chat belongs to its parent's card, not to the lineage.
+    if (isSideChatThread(thread)) continue;
     // Callers order shells from most to least authoritative. In particular,
     // live shells precede archived snapshots, which may still contain a stale
     // copy during archive refresh.
@@ -112,6 +115,7 @@ export function deriveThreadRelationshipGraph(input: {
     }
     for (const transfer of input.projection.contextTransfers) {
       if (transfer.sourceThreadId === transfer.targetThreadId) continue;
+      if (transfer.targetIsSideChat === true) continue;
       addEdge({
         sourceThreadId: transfer.sourceThreadId,
         targetThreadId: transfer.targetThreadId,

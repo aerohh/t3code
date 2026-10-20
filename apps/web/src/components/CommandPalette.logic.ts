@@ -12,6 +12,7 @@ import {
   type EnvironmentMachineKind,
   type FilesystemBrowseEntry,
   type KeybindingCommand,
+  isSideChatThread,
   type SourceControlDiscoveryResult,
   type SourceControlRepositoryInfo,
   THREAD_JUMP_KEYBINDING_COMMANDS,
@@ -363,6 +364,7 @@ export type BuildThreadActionItemsThread = Pick<
   | "worktreePath"
 > & {
   pullRequests?: SidebarThreadSummary["pullRequests"];
+  sideChat?: SidebarThreadSummary["sideChat"];
   updatedAt: string;
   latestUserMessageAt?: string | null;
 };
@@ -381,7 +383,7 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   limit?: number;
 }): CommandPaletteActionItem[] {
   const sortedThreads = sortThreads(
-    input.threads.filter((thread) => thread.archivedAt === null),
+    input.threads.filter((thread) => thread.archivedAt === null && !isSideChatThread(thread)),
     input.sortOrder,
   );
   const visibleThreads =

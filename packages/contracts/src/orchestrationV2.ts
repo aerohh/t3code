@@ -112,6 +112,14 @@ export const OrchestrationV2AppThreadLineage = Schema.Struct({
 });
 export type OrchestrationV2AppThreadLineage = typeof OrchestrationV2AppThreadLineage.Type;
 
+/**
+ * Marks a hidden side chat forked from its parent thread. A separate optional
+ * field instead of a new `relationshipToParent` value, so clients that predate
+ * side chats still decode these threads.
+ */
+export const OrchestrationV2SideChat = Schema.Struct({});
+export type OrchestrationV2SideChat = typeof OrchestrationV2SideChat.Type;
+
 export const OrchestrationV2ContextTransferType = Schema.Literals([
   "fork",
   "provider_handoff",
@@ -203,6 +211,8 @@ export const OrchestrationV2ContextTransfer = Schema.Struct({
   createdAt: Schema.DateTimeUtc,
   updatedAt: Schema.DateTimeUtc,
   consumedAt: Schema.NullOr(Schema.DateTimeUtc),
+  /** Set on the fork that starts a side chat, so its parent's lineage can leave it out. */
+  targetIsSideChat: Schema.optional(Schema.Literal(true)),
 });
 export type OrchestrationV2ContextTransfer = typeof OrchestrationV2ContextTransfer.Type;
 
@@ -386,6 +396,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   activeProviderThreadId: Schema.NullOr(ProviderThreadId),
   historyOrigin: Schema.optional(OrchestrationV2ThreadHistoryOrigin),
   lineage: OrchestrationV2AppThreadLineage,
+  sideChat: Schema.optional(OrchestrationV2SideChat),
   forkedFrom: Schema.NullOr(
     Schema.Union([
       Schema.Struct({ type: Schema.Literal("run"), threadId: ThreadId, runId: RunId }),
@@ -447,6 +458,13 @@ export function isProviderNativeSubagentThread(
   thread: Pick<OrchestrationV2AppThread, "lineage" | "creationSource">,
 ): boolean {
   return thread.lineage.relationshipToParent === "subagent" && thread.creationSource === "provider";
+}
+
+/** A side chat stays out of every thread list; only its parent's card opens it. */
+export function isSideChatThread(thread: {
+  readonly sideChat?: OrchestrationV2SideChat | undefined;
+}): boolean {
+  return thread.sideChat !== undefined;
 }
 
 export const OrchestrationV2RunStatus = Schema.Literals([
@@ -1818,6 +1836,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   lineage: OrchestrationV2AppThreadLineage,
+  sideChat: Schema.optional(OrchestrationV2SideChat),
   forkedFrom: Schema.NullOr(OrchestrationV2AppThread.fields.forkedFrom),
   activeProviderThreadId: Schema.NullOr(ProviderThreadId),
   historyOrigin: Schema.optional(OrchestrationV2ThreadHistoryOrigin),
@@ -2940,6 +2959,15 @@ export const OrchestrationV2Command = Schema.Union([
     targetThreadId: ThreadId,
     sourcePoint: OrchestrationV2ThreadForkSourcePoint,
     title: Schema.optional(TrimmedNonEmptyString),
+    createdAt: Schema.optional(Schema.DateTimeUtc),
+  }),
+  /** Forks a Claude parent at its latest finished run into its one side chat. */
+  Schema.Struct({
+    type: Schema.Literal("thread.side-chat.open"),
+    ...OrchestrationV2CreationFields,
+    commandId: CommandId,
+    parentThreadId: ThreadId,
+    sideChatThreadId: ThreadId,
     createdAt: Schema.optional(Schema.DateTimeUtc),
   }),
   Schema.Struct({

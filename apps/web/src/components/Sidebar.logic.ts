@@ -9,6 +9,7 @@ import {
 import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import type { ContextMenuItem, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { isSideChatThread } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import type { AsyncResult } from "effect/reactivity";
 import { planPinnedReorder } from "@t3tools/client-runtime/state/thread-sort";
@@ -537,7 +538,7 @@ export function resolveSidebarRowThreadId(
 }
 
 export function filterSidebarV2VisibleThreads<
-  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage"> & {
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage" | "sideChat"> & {
     environmentId: string;
     projectId: string;
   },
@@ -546,6 +547,7 @@ export function filterSidebarV2VisibleThreads<
     (thread) =>
       thread.archivedAt === null &&
       !isSidebarSubagentThread(thread) &&
+      !isSideChatThread(thread) &&
       (scopedProjectKeys === null ||
         scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
   );

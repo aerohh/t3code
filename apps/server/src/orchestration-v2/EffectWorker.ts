@@ -537,6 +537,30 @@ export const layerExecutor: Layer.Layer<
                     }),
                 ),
               );
+          case "side-chat.delete": {
+            const sideChatThreadId = effect.request.sideChatThreadId;
+            return threads.getThreadRecords(sideChatThreadId, []).pipe(
+              Effect.flatMap(({ thread }) =>
+                thread.deletedAt !== null
+                  ? Effect.void
+                  : threads.dispatch({
+                      type: "thread.delete",
+                      // Derived from the effect's command, so a retry deletes nothing twice.
+                      commandId: CommandId.make(`${effect.commandId}:delete-side-chat`),
+                      threadId: sideChatThreadId,
+                    }),
+              ),
+              Effect.asVoid,
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationEffectExecutionError({
+                    effectId: effect.id,
+                    effectType: effect.request.type,
+                    cause,
+                  }),
+              ),
+            );
+          }
         }
       },
     });

@@ -657,6 +657,126 @@ describe("ClaudeAdapterV2 session permissions", () => {
   });
 });
 
+describe("ClaudeAdapterV2 side chat", () => {
+  it("gives a side chat only reading, web search and skills, whatever its runtime mode", () => {
+    const queryPolicy = ClaudeAdapterV2.claudeRuntimeQueryPolicyForRuntimePolicy(
+      ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+        runtimeMode: "full-access",
+        interactionMode: "plan",
+        cwd: "/workspace",
+        sideChat: {},
+      }),
+    );
+    assert.deepEqual(queryPolicy, {
+      permissionMode: "dontAsk",
+      tools: ["Read", "Glob", "Grep", "WebSearch", "Skill"],
+      allowedTools: ["WebSearch"],
+      installPermissionCallback: false,
+    });
+  });
+
+  it.effect("opens a side chat with its own tools and no MCP server", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const idAllocator = yield* IdAllocator.IdAllocatorV2;
+        const attachmentsDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "t3-claude-side-chat-",
+        });
+        const threadId = ThreadId.make("thread-claude-side-chat");
+        // T3's tools are on offer to this thread; a side chat must still not get them.
+        yield* (yield* McpProviderSessions.McpProviderSessions).set({
+          environmentId: EnvironmentId.make("environment-claude-side-chat"),
+          threadId,
+          providerSessionId: "mcp-session-claude-side-chat",
+          providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+          endpoint: "http://127.0.0.1:43123/mcp",
+          authorizationHeader: "Bearer secret-claude-token",
+          browserToolsAvailable: true,
+        });
+        let openedOptions: ClaudeAdapterV2.ClaudeAgentSdkQueryOptions | undefined;
+        const adapter = yield* ClaudeAdapterV2.makeClaudeAdapterV2({
+          instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
+          settings: DEFAULT_CLAUDE_SETTINGS,
+          environment: {},
+          attachmentsDir,
+          fileSystem,
+          path: yield* Path.Path,
+          crypto: yield* Crypto.Crypto,
+          idAllocator,
+          queryRunner: {
+            allocateSessionId: Effect.succeed("native-thread-claude-side-chat"),
+            open: (input) =>
+              Effect.sync(() => {
+                openedOptions = input.options;
+                return {
+                  messages: Stream.never,
+                  offer: () => Effect.void,
+                  setModel: () => Effect.void,
+                  applyFlagSettings: () => Effect.void,
+                  setPermissionMode: () => Effect.void,
+                  backgroundTasks: () => Effect.succeed(false),
+                  stopTask: () => Effect.void,
+                  interrupt: Effect.void,
+                  close: Effect.void,
+                };
+              }),
+            forkSession: () => Effect.die("unused"),
+            subagentLaunchToolUseId: () => Effect.succeed(null),
+            assertComplete: Effect.void,
+          },
+        });
+        const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: "/workspace",
+          sideChat: {},
+        });
+        const runtime = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make("provider-session-claude-side-chat"),
+          modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+          runtimePolicy,
+        });
+        const providerThread = yield* runtime.ensureThread({
+          threadId,
+          modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+          runtimePolicy,
+        });
+        yield* runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId,
+            providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("attempt-claude-side-chat"),
+            text: "What does this plan miss?",
+            attachments: [],
+            runtimePolicy,
+          }),
+        );
+
+        assert.deepEqual(openedOptions?.tools, ["Read", "Glob", "Grep", "WebSearch", "Skill"]);
+        assert.deepEqual(openedOptions?.allowedTools, ["WebSearch"]);
+        assert.equal(openedOptions?.skills, "all");
+        assert.equal(openedOptions?.permissionMode, "dontAsk");
+        assert.isUndefined(openedOptions?.mcpServers);
+        assert.isTrue(openedOptions?.strictMcpConfig);
+        const systemPrompt = openedOptions?.systemPrompt;
+        assert.isTrue(
+          typeof systemPrompt === "object" &&
+            !Array.isArray(systemPrompt) &&
+            systemPrompt.type === "preset" &&
+            systemPrompt.append?.includes(ClaudeAdapterV2.SIDE_CHAT_INSTRUCTIONS),
+        );
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
+  );
+});
+
 describe("ClaudeAdapterV2 Auto-accept edits", () => {
   it.effect("asks before a command instead of allowing it", () =>
     Effect.scoped(

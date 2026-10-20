@@ -77,6 +77,7 @@ import {
   type OrchestrationV2ProviderRetry,
   type OrchestrationV2ProviderSession,
   type OrchestrationV2ProviderThread,
+  type OrchestrationV2SideChat,
   type OrchestrationV2ProviderTurn,
   type OrchestrationV2RuntimeRequest,
   type OrchestrationV2UserInputQuestion,
@@ -439,6 +440,16 @@ export interface ClaudeAgentSdkQueryPresetTools {
 export type ClaudeAgentSdkQueryTools = ClaudeAgentSdkQueryToolList | ClaudeAgentSdkQueryPresetTools;
 
 export const CLAUDE_READ_ONLY_ALLOWED_TOOLS = ["Read", "Glob", "Grep"] as const;
+
+export const CLAUDE_SIDE_CHAT_TOOLS = [...CLAUDE_READ_ONLY_ALLOWED_TOOLS, "WebSearch", "Skill"];
+// dontAsk refuses anything not approved up front. Reads stay unlisted so ones outside the
+// working directories are still refused; skills are approved by the `skills` option.
+const CLAUDE_SIDE_CHAT_PREAPPROVED_TOOLS = ["WebSearch"];
+
+// The copied history shows Claude editing files and running commands, so without this it
+// tells the user it will do things the side chat cannot.
+export const SIDE_CHAT_INSTRUCTIONS =
+  "\n\nThis is a side chat. You can read and search files, search the web and use skills. You cannot change, create or delete files, run commands, open web pages, start subagents or use MCP tools, whatever earlier messages show. If a skill asks for one of those, say you can't do it here.";
 
 function claudeAgentSdkQueryToolsForSdk(
   tools: ClaudeAgentSdkQueryTools,
@@ -1273,6 +1284,9 @@ export function makeClaudeQueryOptions(input: {
   readonly sdkSettings?: string | ClaudeSdkSettings;
   readonly environment?: NodeJS.ProcessEnv;
   readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
+  /** Ignore MCP servers from the user's settings, project files and plugins. */
+  readonly strictMcpConfig?: true;
+  readonly sideChat?: OrchestrationV2SideChat;
   readonly tools?: ClaudeAgentSdkQueryTools;
   readonly allowedTools?: ReadonlyArray<string>;
   readonly disallowedTools?: ReadonlyArray<string>;
@@ -1342,6 +1356,7 @@ export function makeClaudeQueryOptions(input: {
     ...threadIdentity,
     ...(input.resumeSessionAt === undefined ? {} : { resumeSessionAt: input.resumeSessionAt }),
     ...(input.allowedTools === undefined ? {} : { allowedTools: [...input.allowedTools] }),
+    ...(input.sideChat === undefined ? {} : { skills: "all" as const }),
     ...(input.disallowedTools === undefined ? {} : { disallowedTools: [...input.disallowedTools] }),
     ...(input.canUseTool === undefined ? {} : { canUseTool: input.canUseTool }),
     ...(input.allowDangerouslySkipPermissions === true
@@ -1370,12 +1385,14 @@ export function makeClaudeQueryOptions(input: {
       : {}),
     ...(input.environment === undefined ? {} : { env: input.environment }),
     ...(input.mcpServers === undefined ? {} : { mcpServers: input.mcpServers }),
+    ...(input.strictMcpConfig === true ? { strictMcpConfig: true } : {}),
     systemPrompt: {
       type: "preset" as const,
       preset: "claude_code" as const,
       append: [
         buildRuntimeInstructions({ harness: "Claude Code" }) +
-          (input.mcpServers === undefined ? "" : T3_CODE_ORCHESTRATION_INSTRUCTIONS),
+          (input.mcpServers === undefined ? "" : T3_CODE_ORCHESTRATION_INSTRUCTIONS) +
+          (input.sideChat === undefined ? "" : SIDE_CHAT_INSTRUCTIONS),
         ...launchAppendSystemPrompt,
       ].join("\n\n"),
     },
@@ -2084,6 +2101,17 @@ export function claudeRuntimeQueryPolicyForRuntimePolicy(
   runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
   availability: ClaudeBypassAvailability = CLAUDE_BYPASS_FULLY_AVAILABLE,
 ): ClaudeRuntimeQueryPolicy {
+  // A side chat never writes. Its tools are the only ones that exist, so no
+  // permission mode or setting can reach Edit or Bash; dontAsk keeps reads
+  // inside its working directories.
+  if (runtimePolicy.sideChat !== undefined) {
+    return {
+      permissionMode: "dontAsk",
+      tools: CLAUDE_SIDE_CHAT_TOOLS,
+      allowedTools: CLAUDE_SIDE_CHAT_PREAPPROVED_TOOLS,
+      installPermissionCallback: false,
+    };
+  }
   const requestedMode = permissionModeForClaudeRuntimePolicy(runtimePolicy);
   const downgraded = requestedMode === "bypassPermissions" && availability.bypassDisabled;
   const permissionMode = downgraded
@@ -9091,14 +9119,21 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           nativeThreadId: string,
         ) {
           const queryPolicy = yield* queryPolicyForTurn(turnInput);
-          const mcpOverrides = claudeMcpQueryOverrides({
-            mcpSession: yield* mcpSessions.read(turnInput.threadId),
-            readOnlySandbox:
-              sandboxPolicyKindForClaudeRuntimePolicy(turnInput.runtimePolicy) === "readOnly",
-            ...(queryPolicy.allowedTools === undefined
+          const isSideChat = turnInput.runtimePolicy.sideChat !== undefined;
+          // A side chat gets no MCP servers: not T3's, which can start and
+          // message threads, nor the user's own.
+          const mcpOverrides = isSideChat
+            ? queryPolicy.allowedTools === undefined
               ? {}
-              : { allowedTools: queryPolicy.allowedTools }),
-          });
+              : { allowedTools: queryPolicy.allowedTools }
+            : claudeMcpQueryOverrides({
+                mcpSession: yield* mcpSessions.read(turnInput.threadId),
+                readOnlySandbox:
+                  sandboxPolicyKindForClaudeRuntimePolicy(turnInput.runtimePolicy) === "readOnly",
+                ...(queryPolicy.allowedTools === undefined
+                  ? {}
+                  : { allowedTools: queryPolicy.allowedTools }),
+              });
           const queryPolicyKey = claudeEffectiveQueryPolicyKey(queryPolicy, mcpOverrides);
           const compiledSelection = compileClaudeModelSelection(turnInput.modelSelection);
           const resumeSessionAt = yield* getNativeConversationHeadId(turnInput.providerThread);
@@ -9221,6 +9256,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ...(mcpOverrides.mcpServers === undefined
               ? {}
               : { mcpServers: mcpOverrides.mcpServers }),
+            ...(turnInput.runtimePolicy.sideChat === undefined
+              ? {}
+              : { strictMcpConfig: true, sideChat: turnInput.runtimePolicy.sideChat }),
             permissionMode: queryPolicy.permissionMode,
             ...(queryPolicy.allowDangerouslySkipPermissions === undefined
               ? {}
