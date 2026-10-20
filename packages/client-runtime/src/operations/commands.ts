@@ -219,6 +219,11 @@ export interface ForkThreadFromRunInput extends CommandMetadata {
   readonly title?: string;
 }
 
+export interface OpenSideChatInput extends CommandMetadata {
+  readonly parentThreadId: ThreadId;
+  readonly sideChatThreadId: ThreadId;
+}
+
 export interface MergeThreadBackInput extends CommandMetadata {
   readonly sourceThreadId: ThreadId;
   readonly targetThreadId: ThreadId;
@@ -1030,6 +1035,19 @@ export const forkThreadFromRun = Effect.fn("EnvironmentCommands.forkThreadFromRu
     targetThreadId: input.targetThreadId,
     sourcePoint: { type: "run", runId: input.runId },
     ...(input.title === undefined ? {} : { title: input.title }),
+  });
+});
+
+export const openSideChat = Effect.fn("EnvironmentCommands.openSideChat")(function* (
+  input: OpenSideChatInput,
+) {
+  return yield* dispatch({
+    type: "thread.side-chat.open",
+    commandId: yield* allocateCommandId(input),
+    createdBy: "user",
+    creationSource: input.creationSource ?? "web",
+    parentThreadId: input.parentThreadId,
+    sideChatThreadId: input.sideChatThreadId,
   });
 });
 

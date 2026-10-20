@@ -98,6 +98,8 @@ export interface ThreadRightPanelState {
 export interface ThreadPanelVisibility {
   inlineOpen: boolean;
   popoverOpen: boolean;
+  /** The side chat card takes the details card's corner; the details preference waits underneath. */
+  sideChatOpen?: true;
 }
 
 interface RightPanelStoreState {
@@ -187,6 +189,7 @@ interface RightPanelStoreState {
     open: boolean,
   ) => void;
   toggleThreadPanel: (ref: ScopedThreadRef, presentation: ThreadPanelPresentation) => void;
+  setSideChatCardOpen: (ref: ScopedThreadRef, open: boolean) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
 
@@ -329,7 +332,7 @@ const updateThreadPanelVisibilityMap = (
 ): Record<string, ThreadPanelVisibility> => {
   const current = byThreadKey[threadKey] ?? DEFAULT_THREAD_PANEL_VISIBILITY;
   const next = updater(current);
-  if (next.inlineOpen && !next.popoverOpen) {
+  if (next.inlineOpen && !next.popoverOpen && next.sideChatOpen === undefined) {
     if (!(threadKey in byThreadKey)) return byThreadKey;
     const { [threadKey]: _removed, ...rest } = byThreadKey;
     return rest;
@@ -1060,6 +1063,10 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             scopedThreadKey(ref),
             (visibility) => {
               const key = presentation === "inline" ? "inlineOpen" : "popoverOpen";
+              if (open && visibility.sideChatOpen) {
+                const { sideChatOpen: _closed, ...rest } = visibility;
+                return { ...rest, [key]: true };
+              }
               return visibility[key] === open ? visibility : { ...visibility, [key]: open };
             },
           ),
@@ -1069,10 +1076,35 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           threadPanelVisibilityByThreadKey: updateThreadPanelVisibilityMap(
             state.threadPanelVisibilityByThreadKey,
             scopedThreadKey(ref),
-            (visibility) =>
-              presentation === "inline"
+            (visibility) => {
+              // Details read as closed under the side chat, so the toggle shows them.
+              if (visibility.sideChatOpen) {
+                const { sideChatOpen: _closed, ...rest } = visibility;
+                return presentation === "inline"
+                  ? { ...rest, inlineOpen: true }
+                  : { ...rest, popoverOpen: true };
+              }
+              return presentation === "inline"
                 ? { ...visibility, inlineOpen: !visibility.inlineOpen }
-                : { ...visibility, popoverOpen: !visibility.popoverOpen },
+                : { ...visibility, popoverOpen: !visibility.popoverOpen };
+            },
+          ),
+        })),
+      setSideChatCardOpen: (ref, open) =>
+        set((state) => ({
+          threadPanelVisibilityByThreadKey: updateThreadPanelVisibilityMap(
+            state.threadPanelVisibilityByThreadKey,
+            scopedThreadKey(ref),
+            (visibility) => {
+              if (open) {
+                return visibility.sideChatOpen && !visibility.popoverOpen
+                  ? visibility
+                  : { ...visibility, popoverOpen: false, sideChatOpen: true };
+              }
+              if (!visibility.sideChatOpen) return visibility;
+              const { sideChatOpen: _closed, ...rest } = visibility;
+              return rest;
+            },
           ),
         })),
       removeThread: (ref) =>
@@ -1173,7 +1205,15 @@ export function selectThreadPanelOpen(
   presentation: ThreadPanelPresentation,
 ): boolean {
   const visibility = selectThreadPanelVisibility(byThreadKey, ref);
+  if (visibility.sideChatOpen) return false;
   return presentation === "inline" ? visibility.inlineOpen : visibility.popoverOpen;
+}
+
+export function selectSideChatCardOpen(
+  byThreadKey: Record<string, ThreadPanelVisibility>,
+  ref: ScopedThreadRef | null | undefined,
+): boolean {
+  return selectThreadPanelVisibility(byThreadKey, ref).sideChatOpen === true;
 }
 
 export function selectActiveRightPanel(

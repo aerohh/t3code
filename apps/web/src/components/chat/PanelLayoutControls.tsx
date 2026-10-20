@@ -1,4 +1,10 @@
-import { PanelBottomIcon, PanelRightIcon, SquareMenuIcon, XIcon } from "lucide-react";
+import {
+  MessageCircleDashedIcon,
+  PanelBottomIcon,
+  PanelRightIcon,
+  SquareMenuIcon,
+  XIcon,
+} from "lucide-react";
 import { Maximize2, Minimize2 } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
 import { memo, type ReactElement, type ReactNode } from "react";
@@ -26,6 +32,10 @@ export interface PanelLayoutControlsProps {
   rightPanelOpen: boolean;
   rightPanelShortcutLabel: string | null;
   rightPanelUnavailableLabel?: string;
+  /** Only offered on Claude chats that can still have a side chat. */
+  sideChatAvailable?: boolean;
+  sideChatOpen?: boolean;
+  onToggleSideChat?: () => void;
   onToggleTerminal: () => void;
   onToggleThreadPanel: () => void;
   onToggleRightPanel: () => void;
@@ -46,6 +56,9 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   rightPanelOpen,
   rightPanelShortcutLabel,
   rightPanelUnavailableLabel = "Right panel is unavailable",
+  sideChatAvailable = false,
+  sideChatOpen = false,
+  onToggleSideChat,
   onToggleTerminal,
   onToggleThreadPanel,
   onToggleRightPanel,
@@ -79,6 +92,25 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       className="flex h-full shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
       data-panel-layout-controls
     >
+      {showThreadPanelControl && sideChatAvailable && onToggleSideChat ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Toggle
+                className="shrink-0 [-webkit-app-region:no-drag]"
+                pressed={sideChatOpen}
+                onPressedChange={onToggleSideChat}
+                aria-label="Toggle side chat"
+                variant="ghost"
+                size="sm"
+              >
+                <MessageCircleDashedIcon className="size-4" />
+              </Toggle>
+            }
+          />
+          <TooltipPopup side="bottom">Side chat</TooltipPopup>
+        </Tooltip>
+      ) : null}
       {showThreadPanelControl
         ? threadPanelPresentation === "popover"
           ? threadPanelTooltip(

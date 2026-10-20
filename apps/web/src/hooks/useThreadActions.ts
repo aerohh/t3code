@@ -12,6 +12,7 @@ import {
   AuthSourceControlWriteScope,
   EnvironmentAuthorizationError,
   EnvironmentId,
+  isSideChatThread,
   type ScopedThreadRef,
   ThreadId,
   sessionGrantsScope,
@@ -517,7 +518,7 @@ export function useThreadActions() {
       currentRouteThreadRef?.threadId === threadRef.threadId &&
       currentRouteThreadRef.environmentId === threadRef.environmentId;
     const fallbackThreadId = getFallbackThreadIdAfterDelete({
-      threads,
+      threads: threads.filter((candidate) => !isSideChatThread(candidate)),
       deletedThreadId: threadRef.threadId,
       deletedThreadIds,
       sortOrder: sidebarThreadSortOrder,

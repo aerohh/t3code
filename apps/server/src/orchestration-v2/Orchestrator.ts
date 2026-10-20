@@ -163,6 +163,7 @@ import {
 import {
   forkableSourceRunStatusError,
   isForkableSourceRunStatus,
+  sideChatThreadFromFork,
   ThreadForkServiceV2,
 } from "./ThreadForkService.ts";
 import { planThreadDeletion } from "./ThreadDeletion.ts";
@@ -530,6 +531,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "delegated_task.completion-delivery.acknowledge":
     case "delegated_task.completion-delivery.dispose":
     case "thread.created.record":
+    case "thread.side-chat.open":
       return command.parentThreadId;
     case "secret_request.record":
     case "link_request.record":
@@ -770,6 +772,17 @@ function usageLimitHoldsQueue(
       ?.providerInstanceId === providerInstanceId
   );
 }
+
+// Only the Claude adapter enforces a side chat's tool limits, so it cannot move
+// to another provider instance.
+function isSideChatProviderSwitch(
+  thread: Pick<OrchestrationV2AppThread, "sideChat" | "providerInstanceId">,
+  modelSelection: ModelSelection,
+): boolean {
+  return thread.sideChat !== undefined && modelSelection.instanceId !== thread.providerInstanceId;
+}
+
+const SIDE_CHAT_PROVIDER_SWITCH_REFUSAL = "A side chat cannot switch to another provider.";
 
 function latestStableRun(
   projection: Pick<OrchestrationV2ThreadProjection, "runs">,
@@ -2868,6 +2881,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     }
     if (
+      (command.type === "thread.model-selection.set" || command.type === "provider.switch") &&
+      isSideChatProviderSwitch(thread, command.modelSelection)
+    ) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: SIDE_CHAT_PROVIDER_SWITCH_REFUSAL,
+      });
+    }
+    if (
       command.type === "thread.pull-request.watch" &&
       command.watching &&
       isProviderNativeSubagentThread(thread)
@@ -4124,6 +4147,148 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       payload: transfer,
     });
   });
+
+  const dispatchThreadSideChatOpen = Effect.fn("orchestrationV2.dispatch.threadSideChatOpen")(
+    function* (
+      command: Extract<OrchestrationV2Command, { readonly type: "thread.side-chat.open" }>,
+      events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    ) {
+      yield* Effect.annotateCurrentSpan({
+        "orchestration_v2.command_id": command.commandId,
+        "orchestration_v2.command_type": command.type,
+        "orchestration_v2.parent_thread_id": command.parentThreadId,
+        "orchestration_v2.side_chat_thread_id": command.sideChatThreadId,
+      });
+      const refuse = (cause: string) =>
+        new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause,
+        });
+
+      const parentProjection = yield* projectionStore
+        .getThreadRecords(command.parentThreadId, [
+          "runs",
+          "checkpoints",
+          "providerThreads",
+          "providerTurns",
+          "attempts",
+          "contextTransfers",
+        ])
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestratorProjectionError({
+                threadId: command.parentThreadId,
+                cause,
+              }),
+          ),
+        );
+      const parent = parentProjection.thread;
+      yield* refuseAboveDispatchModeLimit(command, command.parentThreadId, parent);
+
+      if (parent.sideChat !== undefined) {
+        return yield* refuse("A side chat cannot have its own side chat.");
+      }
+      if (
+        parent.deletedAt !== null ||
+        parent.archivedAt !== null ||
+        parent.settledOverride === "settled"
+      ) {
+        return yield* refuse(
+          `Thread ${parent.id} is deleted, archived, or settled, so it cannot open a side chat.`,
+        );
+      }
+      const parentAdapter = yield* providerAdapters
+        .get(parent.providerInstanceId)
+        .pipe(Effect.mapError((cause) => refuse(String(cause))));
+      if (parentAdapter.driver !== "claudeAgent") {
+        return yield* refuse("Side chats are only available in Claude threads.");
+      }
+      const existingSideChatId = yield* projectionStore
+        .getSideChatThreadId(parent.id)
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: parent.id, cause }),
+          ),
+        );
+      if (existingSideChatId !== null) {
+        return yield* refuse(`Thread ${parent.id} already has side chat ${existingSideChatId}.`);
+      }
+      // The latest finished reply, so a side chat can open while the parent is still working.
+      const sourceRun = parentProjection.runs
+        .filter((run) => isForkableSourceRunStatus(run.status))
+        .toSorted((left, right) => right.ordinal - left.ordinal)[0];
+      if (sourceRun === undefined) {
+        return yield* refuse(
+          `Thread ${parent.id} has no finished reply to start a side chat from.`,
+        );
+      }
+
+      const now = command.createdAt ?? (yield* DateTime.now);
+      const emitEvent = emit(events, command);
+      const transferId = yield* mapDispatchError(command)(
+        idAllocator.allocate.contextTransfer({
+          sourceThreadId: parent.id,
+          targetThreadId: command.sideChatThreadId,
+          type: "fork",
+        }),
+      );
+      const { targetThread, transfer } = yield* threadForkService
+        .plan({
+          sourceProjection: parentProjection,
+          sourceRun,
+          sourceProviderThread: providerThreadForRun(parentProjection, sourceRun),
+          canonicalSourcePoint: contextSourcePointForRun(parentProjection, sourceRun),
+          transferId,
+          targetThreadId: command.sideChatThreadId,
+          title: "Side chat",
+          createdBy: command.createdBy,
+          creationSource: command.creationSource,
+          createdAt: now,
+        })
+        .pipe(mapDispatchError(command));
+      const sideChatThread = sideChatThreadFromFork(targetThread);
+
+      yield* emitEvent({
+        type: "thread.created",
+        threadId: command.sideChatThreadId,
+        providerInstanceId: sideChatThread.providerInstanceId,
+        occurredAt: now,
+        payload: sideChatThread,
+      });
+      yield* emitEvent({
+        type: "context-transfer.created",
+        threadId: command.sideChatThreadId,
+        providerInstanceId: sourceRun.providerInstanceId,
+        occurredAt: now,
+        payload: { ...transfer, targetIsSideChat: true },
+      });
+    },
+  );
+
+  // A side chat ends with its parent. The delete is a queued effect, so it still
+  // runs if the server stops right after the parent's change commits.
+  const sideChatDeletionEffect = Effect.fn("orchestrationV2.sideChatDeletionEffect")(
+    function* (command: { readonly commandId: CommandId; readonly threadId: ThreadId }) {
+      const sideChatThreadId = yield* projectionStore
+        .getSideChatThreadId(command.threadId)
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+          ),
+        );
+      if (sideChatThreadId === null) return [];
+      return [
+        {
+          id: `effect:${command.commandId}:side-chat.delete`,
+          commandId: command.commandId,
+          threadId: command.threadId,
+          request: { type: "side-chat.delete", sideChatThreadId },
+        } satisfies PendingOrchestrationEffectV2,
+      ];
+    },
+  );
 
   const dispatchThreadMergeBack = Effect.fn("orchestrationV2.dispatch.threadMergeBack")(function* (
     command: Extract<OrchestrationV2Command, { readonly type: "thread.merge_back" }>,
@@ -12484,6 +12649,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           events,
           effects,
         );
+        const sideChatDeletion = yield* sideChatDeletionEffect(command);
+        yield* Ref.update(effects, (existing) => [...existing, ...sideChatDeletion]);
         break;
       }
       case "thread.delete": {
@@ -12501,7 +12668,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
             ),
           );
-        return yield* mapDispatchError(command)(
+        const deletion = yield* mapDispatchError(command)(
           planThreadDeletion({
             command,
             projection,
@@ -12512,6 +12679,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             idAllocator,
           }),
         );
+        return {
+          ...deletion,
+          effects: [...deletion.effects, ...(yield* sideChatDeletionEffect(command))],
+        };
       }
       case "thread.archive":
       case "thread.unarchive":
@@ -12537,6 +12708,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.model-selection.set":
       case "provider.switch":
         yield* dispatchThreadMutation(command, events, effects);
+        if (command.type === "thread.archive" || command.type === "thread.settle") {
+          const sideChatDeletion = yield* sideChatDeletionEffect(command);
+          yield* Ref.update(effects, (existing) => [...existing, ...sideChatDeletion]);
+        }
         break;
       case "thread.pull-request-watch.sync":
         yield* dispatchPullRequestWatchSync(command, events, effects);
@@ -12564,6 +12739,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return yield* new OrchestratorSubagentThreadReadOnlyError({
             commandId: command.commandId,
             threadId: command.threadId,
+          });
+        }
+        if (
+          command.modelSelection !== undefined &&
+          isSideChatProviderSwitch(thread, command.modelSelection)
+        ) {
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: SIDE_CHAT_PROVIDER_SWITCH_REFUSAL,
           });
         }
         const guestSend =
@@ -12747,6 +12932,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       case "thread.fork":
         yield* dispatchThreadFork(command, events);
+        break;
+      case "thread.side-chat.open":
+        yield* dispatchThreadSideChatOpen(command, events);
         break;
       case "thread.merge_back":
         yield* dispatchThreadMergeBack(command, events);

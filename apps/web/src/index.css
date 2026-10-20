@@ -2576,4 +2576,11 @@ code {
       );
     }
   }
+  /* The side chat card is already as narrow as a chat lane; the window's gutters would squeeze it. */
+  [data-side-chat-card] .chat-composer-lane {
+    padding-inline: 0.5rem;
+  }
+  [data-side-chat-card] [data-chat-canvas] .messages-timeline-scroll {
+    padding-inline: calc(1rem - var(--chat-timeline-gutter, 0px));
+  }
 }

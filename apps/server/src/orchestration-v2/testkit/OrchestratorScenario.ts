@@ -188,6 +188,8 @@ function commandThreadIds(command: OrchestrationV2Command): ReadonlyArray<Thread
     case "thread.fork":
     case "thread.merge_back":
       return [command.sourceThreadId, command.targetThreadId];
+    case "thread.side-chat.open":
+      return [command.parentThreadId, command.sideChatThreadId];
   }
 }
 

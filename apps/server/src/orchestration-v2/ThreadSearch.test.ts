@@ -7,6 +7,7 @@ import {
   ThreadId,
   type OrchestrationV2DomainEvent,
   type ThreadLinkedPullRequest,
+  type OrchestrationV2SideChat,
 } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as DateTime from "effect/DateTime";
@@ -69,6 +70,7 @@ const thread = (
     readonly settledAt?: DateTime.Utc;
     readonly linkedPullRequest?: ThreadLinkedPullRequest;
     readonly branchPullRequest?: ThreadLinkedPullRequest;
+    readonly sideChat?: OrchestrationV2SideChat;
   } = {},
 ): OrchestrationV2DomainEvent => ({
   id: EventId.make(`created:${threadId}`),
@@ -98,6 +100,7 @@ const thread = (
           rootThreadId: overrides.subagentOf,
         }
       : { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+    ...(overrides.sideChat === undefined ? {} : { sideChat: overrides.sideChat }),
     forkedFrom: null,
     createdAt: at(0),
     updatedAt: at(0),
@@ -200,6 +203,8 @@ it.layer(layerTest)("ThreadSearch", (it) => {
         message(ThreadId.make("thread:deleted"), "deleted", "user", "needle deleted"),
         thread(ThreadId.make("thread:orphaned"), deletedProject),
         message(ThreadId.make("thread:orphaned"), "orphaned", "user", "needle orphaned"),
+        thread(ThreadId.make("thread:side-chat"), project, { sideChat: {} }),
+        message(ThreadId.make("thread:side-chat"), "side-chat", "user", "needle side chat"),
       ];
       yield* Effect.forEach(events, projections.apply, { discard: true });
 

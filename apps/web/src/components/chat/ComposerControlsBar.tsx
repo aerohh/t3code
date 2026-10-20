@@ -57,6 +57,8 @@ export function ComposerControlsBar(props: {
   showInlineRestingControls: boolean;
   showLeadingSeparator: boolean;
   showProviderUnavailable: boolean;
+  inSideChatCard: boolean;
+  sideChatPickersShown: boolean;
   providerSetupInstanceId: ProviderInstanceId | undefined;
   onOpenProviderSetup: ChatComposerProps["onOpenProviderSetup"];
   providerCatalogPending: boolean;
@@ -106,6 +108,8 @@ export function ComposerControlsBar(props: {
     showInlineRestingControls,
     showLeadingSeparator,
     showProviderUnavailable,
+    inSideChatCard,
+    sideChatPickersShown,
     providerSetupInstanceId,
     onOpenProviderSetup,
     providerCatalogPending,
@@ -262,6 +266,18 @@ export function ComposerControlsBar(props: {
       <CircleAlertIcon className="size-4" />
       {providerSetupInstanceId ? "Open provider settings" : "No provider available"}
     </ComposerControl>
+  ) : inSideChatCard ? (
+    sideChatPickersShown ? (
+      <>
+        {composerModelPicker}
+        {providerTraitsPicker ? (
+          <>
+            <ComposerControlSeparator size={composerControlsCollapsed ? "xs" : "sm"} />
+            {restingProviderTraitsPicker}
+          </>
+        ) : null}
+      </>
+    ) : null
   ) : (
     <>
       {showLeadingSeparator ? (

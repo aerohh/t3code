@@ -439,6 +439,22 @@ export function createEnvironmentThreadShellAtoms(input: {
     }).pipe(Atom.withLabel(`environment-child-thread-inputs:${key}`));
   });
 
+  const sideChatThreadIdAtomFamily = Atom.family((key: string) => {
+    const ref = parseThreadKey(key);
+    return Atom.make((get): ThreadId | null => {
+      for (const thread of get(environmentThreadsAtom(ref.environmentId))) {
+        if (
+          thread.sideChat !== undefined &&
+          thread.archivedAt === null &&
+          thread.lineage.parentThreadId === ref.threadId
+        ) {
+          return thread.id;
+        }
+      }
+      return null;
+    }).pipe(Atom.withLabel(`environment-side-chat-thread-id:${key}`));
+  });
+
   const threadShellsForProjectRefsAtomFamily = Atom.family((key: string) => {
     const projectRefs = parseProjectRefCollectionKey(key);
     let previous: ReadonlyArray<EnvironmentThreadShell> = [];
@@ -581,5 +597,7 @@ export function createEnvironmentThreadShellAtoms(input: {
     threadShellAtom: (ref: ScopedThreadRef) => threadShellAtomFamily(threadKey(ref)),
     quietThreadShellAtom: (ref: ScopedThreadRef) => quietThreadShellAtomFamily(threadKey(ref)),
     childThreadInputsAtom: (ref: ScopedThreadRef) => childThreadInputsAtomFamily(threadKey(ref)),
+    /** The parent's live side chat. Side chats are hidden from every list, so this is how a chat finds its own. */
+    sideChatThreadIdAtom: (ref: ScopedThreadRef) => sideChatThreadIdAtomFamily(threadKey(ref)),
   };
 }

@@ -23,6 +23,7 @@ export function ThreadTimeline({
   activeThreadKey,
   syncing,
   detailLoading,
+  hideInheritedTurnItems,
   ...timelineProps
 }: Omit<ComponentProps<typeof MessagesTimeline>, "timelineEntries"> & {
   /** Null until the thread's detail may load; see resolveThreadDetailRef. */
@@ -33,8 +34,13 @@ export function ThreadTimeline({
   activeThreadKey: string | null;
   syncing: boolean;
   detailLoading: boolean;
+  /** A side chat starts as a copy of its parent; its card shows only what was said after that. */
+  hideInheritedTurnItems: boolean;
 }) {
-  const visibleTurnItems = useThreadVisibleTurnItems(threadDetailRef);
+  const threadTurnItems = useThreadVisibleTurnItems(threadDetailRef);
+  const visibleTurnItems = hideInheritedTurnItems
+    ? threadTurnItems.filter((item) => item.visibility !== "inherited")
+    : threadTurnItems;
   const serverEntries = useIncrementalTimelineEntries(activeThreadKey, {
     ...entriesInput,
     visibleTurnItems,

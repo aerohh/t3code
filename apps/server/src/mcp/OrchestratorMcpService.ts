@@ -62,6 +62,7 @@ import {
   type ServerProviderModel,
   ThreadId,
   isOrchestrationV2WorkActive,
+  isSideChatThread,
 } from "@t3tools/contracts";
 import { getProviderOptionCurrentValue } from "@t3tools/shared/model";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
@@ -1187,7 +1188,7 @@ const make = Effect.gen(function* () {
     const shell = yield* threadManagement
       .getThreadShell(threadId)
       .pipe(Effect.mapError(threadManagementFailure));
-    if (shell === null || shell.deletedAt !== null) {
+    if (shell === null || shell.deletedAt !== null || isSideChatThread(shell)) {
       return yield* threadNotFound(
         threadManagement,
         threadId,
