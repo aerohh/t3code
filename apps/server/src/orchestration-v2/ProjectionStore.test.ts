@@ -382,6 +382,46 @@ const threadWorktreePathsReadActiveThreads = Effect.gen(function* () {
   ]);
 });
 
+const sideChatMarkReachesThreadShell = Effect.gen(function* () {
+  const store = yield* ProjectionStore.ProjectionStoreV2;
+  const now = yield* DateTime.now;
+  const threadId = ThreadId.make("thread:side-chat-mark");
+  yield* store.apply({
+    id: EventId.make("event:thread:side-chat-mark:created"),
+    type: "thread.created",
+    threadId,
+    occurredAt: now,
+    payload: {
+      createdBy: "user",
+      creationSource: "web",
+      id: threadId,
+      projectId: ProjectId.make("project:side-chat-mark"),
+      title: "Side chat",
+      providerInstanceId,
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      activeProviderThreadId: null,
+      lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+      sideChat: { canReadFiles: false },
+      forkedFrom: null,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      settledOverride: null,
+      settledAt: null,
+      lastVisitedAt: null,
+      deletedAt: null,
+    },
+  });
+
+  assert.deepEqual((yield* store.getThreadShell(threadId))?.sideChat, { canReadFiles: false });
+  const listed = (yield* store.getShellSnapshot()).threads.find((thread) => thread.id === threadId);
+  assert.deepEqual(listed?.sideChat, { canReadFiles: false });
+});
+
 const commandReadsSkipSettledLeafNodes = Effect.gen(function* () {
   const store = yield* ProjectionStore.ProjectionStoreV2;
   const now = yield* DateTime.now;
@@ -467,6 +507,10 @@ it.effect("memory command reads skip finished leaf nodes of finished runs", () =
 
 it.effect("memory worktree path lookup reads only active threads", () =>
   threadWorktreePathsReadActiveThreads.pipe(Effect.provide(ProjectionStore.layerMemory)),
+);
+
+it.effect("memory thread shells carry the side chat mark", () =>
+  sideChatMarkReachesThreadShell.pipe(Effect.provide(ProjectionStore.layerMemory)),
 );
 
 it.effect("memory projection keeps restart-cancelled work through a stale run.updated", () =>
@@ -699,6 +743,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
     "worktree path lookup reads only active threads",
     () => threadWorktreePathsReadActiveThreads,
   );
+  it.effect("thread shells carry the side chat mark", () => sideChatMarkReachesThreadShell);
 
   it.effect(
     "keeps restart-cancelled work through a stale run.updated",

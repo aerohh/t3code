@@ -68,6 +68,7 @@ import {
   type OrchestrationV2ProviderRetry,
   type OrchestrationV2ProviderSession,
   type OrchestrationV2ProviderThread,
+  type OrchestrationV2SideChat,
   type OrchestrationV2ProviderTurn,
   type OrchestrationV2RuntimeRequest,
   type OrchestrationV2UserInputQuestion,
@@ -374,6 +375,14 @@ export interface ClaudeAgentSdkQueryPresetTools {
 export type ClaudeAgentSdkQueryTools = ClaudeAgentSdkQueryToolList | ClaudeAgentSdkQueryPresetTools;
 
 export const CLAUDE_READ_ONLY_ALLOWED_TOOLS = ["Read", "Glob", "Grep"] as const;
+
+// The copied history shows Claude using tools, so without this it tells the user it can still
+// open files when the side chat gave it none.
+export function sideChatInstructions(sideChat: OrchestrationV2SideChat): string {
+  return sideChat.canReadFiles
+    ? "\n\nThis is a side chat. You can read and search files, but you cannot change, create or delete files or run commands, whatever earlier messages show."
+    : "\n\nThis is a side chat. You have no tools here: you cannot open, search, change or run anything, whatever earlier messages show. Answer from this conversation. If a question needs a file, say so, and say the user can turn on Can read files for this side chat.";
+}
 
 function claudeAgentSdkQueryToolsForSdk(
   tools: ClaudeAgentSdkQueryTools,
@@ -1098,6 +1107,9 @@ export function makeClaudeQueryOptions(input: {
   readonly sdkSettings?: string | ClaudeSdkSettings;
   readonly environment?: NodeJS.ProcessEnv;
   readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
+  /** Ignore MCP servers from the user's settings, project files and plugins. */
+  readonly strictMcpConfig?: true;
+  readonly sideChat?: OrchestrationV2SideChat;
   readonly tools?: ClaudeAgentSdkQueryTools;
   readonly allowedTools?: ReadonlyArray<string>;
   readonly disallowedTools?: ReadonlyArray<string>;
@@ -1185,12 +1197,14 @@ export function makeClaudeQueryOptions(input: {
       : {}),
     ...(input.environment === undefined ? {} : { env: input.environment }),
     ...(input.mcpServers === undefined ? {} : { mcpServers: input.mcpServers }),
+    ...(input.strictMcpConfig === true ? { strictMcpConfig: true } : {}),
     systemPrompt: {
       type: "preset" as const,
       preset: "claude_code" as const,
       append:
         buildRuntimeInstructions({ harness: "Claude Code" }) +
-        (input.mcpServers === undefined ? "" : T3_CODE_ORCHESTRATION_INSTRUCTIONS),
+        (input.mcpServers === undefined ? "" : T3_CODE_ORCHESTRATION_INSTRUCTIONS) +
+        (input.sideChat === undefined ? "" : sideChatInstructions(input.sideChat)),
     },
     ...(Object.keys(extraArgs).length === 0 ? {} : { extraArgs }),
   };
@@ -1856,6 +1870,16 @@ export interface ClaudeRuntimeQueryPolicy {
 export function claudeRuntimeQueryPolicyForRuntimePolicy(
   runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
 ): ClaudeRuntimeQueryPolicy {
+  // A side chat never writes. Its tools are the only ones that exist, so no
+  // permission mode or setting can reach Edit or Bash; dontAsk keeps reads
+  // inside its working directories.
+  if (runtimePolicy.sideChat !== undefined) {
+    return {
+      permissionMode: "dontAsk",
+      tools: runtimePolicy.sideChat.canReadFiles ? CLAUDE_READ_ONLY_ALLOWED_TOOLS : [],
+      installPermissionCallback: false,
+    };
+  }
   const permissionMode = permissionModeForClaudeRuntimePolicy(runtimePolicy);
   const readOnlyTools =
     sandboxPolicyKindForClaudeRuntimePolicy(runtimePolicy) === "readOnly"
@@ -8468,14 +8492,19 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           nativeThreadId: string,
         ) {
           const queryPolicy = claudeRuntimeQueryPolicyForRuntimePolicy(turnInput.runtimePolicy);
-          const mcpOverrides = claudeMcpQueryOverrides({
-            mcpSession: yield* mcpSessions.read(turnInput.threadId),
-            readOnlySandbox:
-              sandboxPolicyKindForClaudeRuntimePolicy(turnInput.runtimePolicy) === "readOnly",
-            ...(queryPolicy.allowedTools === undefined
-              ? {}
-              : { allowedTools: queryPolicy.allowedTools }),
-          });
+          const isSideChat = turnInput.runtimePolicy.sideChat !== undefined;
+          // A side chat gets no MCP servers: not T3's, which can start and
+          // message threads, nor the user's own.
+          const mcpOverrides = isSideChat
+            ? {}
+            : claudeMcpQueryOverrides({
+                mcpSession: yield* mcpSessions.read(turnInput.threadId),
+                readOnlySandbox:
+                  sandboxPolicyKindForClaudeRuntimePolicy(turnInput.runtimePolicy) === "readOnly",
+                ...(queryPolicy.allowedTools === undefined
+                  ? {}
+                  : { allowedTools: queryPolicy.allowedTools }),
+              });
           const queryPolicyKey = claudeEffectiveQueryPolicyKey(queryPolicy, mcpOverrides);
           const compiledSelection = compileClaudeModelSelection(turnInput.modelSelection);
           const resumeSessionAt = yield* getNativeConversationHeadId(turnInput.providerThread);
@@ -8586,6 +8615,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ...(mcpOverrides.mcpServers === undefined
               ? {}
               : { mcpServers: mcpOverrides.mcpServers }),
+            ...(turnInput.runtimePolicy.sideChat === undefined
+              ? {}
+              : { strictMcpConfig: true, sideChat: turnInput.runtimePolicy.sideChat }),
             permissionMode: queryPolicy.permissionMode,
             ...(queryPolicy.allowDangerouslySkipPermissions === undefined
               ? {}

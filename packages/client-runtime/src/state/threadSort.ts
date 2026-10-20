@@ -1,4 +1,5 @@
-import type { ProjectId } from "@t3tools/contracts";
+import type { OrchestrationV2SideChat, ProjectId } from "@t3tools/contracts";
+import { isSideChatThread } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import type { EnvironmentThreadShell } from "./models.ts";
 import * as Arr from "effect/Array";
@@ -156,12 +157,15 @@ export function getLatestThreadForProject<
     readonly id: string;
     readonly projectId: ProjectId;
     readonly archivedAt: string | null;
+    readonly sideChat?: OrchestrationV2SideChat | undefined;
   } & ThreadSortInput,
 >(threads: readonly T[], projectId: ProjectId, sortOrder: SidebarThreadSortOrder): T | null {
   let latest: T | null = null;
   let latestTimestamp = Number.NEGATIVE_INFINITY;
   for (const thread of threads) {
-    if (thread.projectId !== projectId || thread.archivedAt !== null) continue;
+    if (thread.projectId !== projectId || thread.archivedAt !== null || isSideChatThread(thread)) {
+      continue;
+    }
     const timestamp = getThreadSortTimestamp(thread, sortOrder);
     if (
       latest === null ||

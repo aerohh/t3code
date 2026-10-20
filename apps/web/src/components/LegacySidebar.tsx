@@ -52,6 +52,7 @@ import {
   type ScopedThreadRef,
   type ResolvedKeybindingsConfig,
   type SidebarProjectGroupingMode,
+  isSideChatThread,
   resolveEnvironmentMachineKind,
   ThreadId,
 } from "@t3tools/contracts";
@@ -1389,7 +1390,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       });
     };
     const visibleProjectThreads = sortThreads(
-      projectThreads.filter((thread) => thread.archivedAt === null),
+      projectThreads.filter((thread) => thread.archivedAt === null && !isSideChatThread(thread)),
       threadSortOrder,
     );
     const projectStatus = resolveProjectStatusIndicator(
@@ -3538,7 +3539,8 @@ export default function LegacySidebar() {
   }, []);
 
   const visibleThreads = useMemo(
-    () => sidebarThreads.filter((thread) => thread.archivedAt === null),
+    () =>
+      sidebarThreads.filter((thread) => thread.archivedAt === null && !isSideChatThread(thread)),
     [sidebarThreads],
   );
   const sortedProjects = useMemo(() => {
@@ -3578,7 +3580,7 @@ export default function LegacySidebar() {
       sortedProjects.flatMap((project) => {
         const projectThreads = sortThreads(
           (threadsByProjectKey.get(project.projectKey) ?? []).filter(
-            (thread) => thread.archivedAt === null,
+            (thread) => thread.archivedAt === null && !isSideChatThread(thread),
           ),
           sidebarThreadSortOrder,
         );

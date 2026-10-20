@@ -187,6 +187,38 @@ describe("thread relationships", () => {
     );
   });
 
+  it("leaves a side chat and the fork that started it out of the lineage", () => {
+    const parent = ThreadId.make("thread-parent");
+    const sideChat = ThreadId.make("thread-side-chat");
+    const graph = deriveThreadRelationshipGraph({
+      threads: [
+        { id: parent, status: "completed", forkedFrom: null, lineage: { parentThreadId: null } },
+        {
+          id: sideChat,
+          status: "completed",
+          forkedFrom: { type: "run", threadId: parent, runId: "run-parent" },
+          lineage: { parentThreadId: parent, relationshipToParent: "fork" },
+          sideChat: { canReadFiles: false },
+        },
+      ] as never,
+      projection: {
+        thread: { id: parent },
+        subagents: [],
+        contextTransfers: [
+          {
+            sourceThreadId: parent,
+            targetThreadId: sideChat,
+            status: "consumed",
+            targetIsSideChat: true,
+          },
+        ],
+      } as never,
+    });
+
+    expect(graph.nodes.has(sideChat)).toBe(false);
+    expect(graph.edges).toEqual([]);
+  });
+
   it.each([
     ["running", "running", "running"],
     ["waiting", "completed", "waiting"],

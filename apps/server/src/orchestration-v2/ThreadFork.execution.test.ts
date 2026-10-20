@@ -13,12 +13,14 @@ import {
   RunId,
   ThreadId,
   TurnItemId,
+  type OrchestrationV2Run,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import { ClaudeProviderCapabilitiesV2 } from "./Adapters/ClaudeAdapterV2.ts";
+import * as EffectWorker from "./EffectWorker.ts";
 import * as EventSink from "./EventSink.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
@@ -249,3 +251,223 @@ it.effect.each(forkCases)(
       assert.isNull(target.providerThreads[0]?.forkedFrom);
     }).pipe(Effect.provide(layer)),
 );
+
+const sideChatParentThreadId = ThreadId.make("side-chat-parent");
+const sideChatThreadId = ThreadId.make("side-chat");
+
+const sideChatLayerFor = (driverName: "claudeAgent" | "codex") => {
+  const driver = ProviderDriverKind.make(driverName);
+  const instanceId = ProviderInstanceId.make(driver);
+  const adapter: ProviderAdapter.ProviderAdapterV2["Service"] = {
+    instanceId,
+    driver,
+    getCapabilities: () =>
+      Effect.succeed(
+        driver === "codex" ? CodexProviderCapabilitiesV2 : ClaudeProviderCapabilitiesV2,
+      ),
+    planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" }),
+    openSession: () => Effect.die("Side chat tests never start a turn"),
+  };
+  return {
+    instanceId,
+    layer: ProviderReplayHarness.layerWithRegistry(
+      { name: `side-chat-open-${driver}` },
+      ProviderAdapterRegistry.layerFromAdapters([adapter]),
+      { runEffectWorker: false },
+    ),
+  };
+};
+
+const createSideChatParent = (
+  instanceId: ProviderInstanceId,
+  runStatuses: ReadonlyArray<OrchestrationV2Run["status"]>,
+) =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const eventSink = yield* EventSink.EventSinkV2;
+    const now = yield* DateTime.now;
+    const modelSelection = { instanceId, model: "test-model" };
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("create-side-chat-parent"),
+      threadId: sideChatParentThreadId,
+      projectId: ProjectId.make("side-chat-project"),
+      title: "Side chat parent",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "plan",
+      branch: null,
+      worktreePath: null,
+      createdBy: "user",
+      creationSource: "web",
+    });
+    for (const [index, status] of runStatuses.entries()) {
+      const ordinal = index + 1;
+      const runId = RunId.make(`side-chat-parent-run-${ordinal}`);
+      yield* eventSink.write({
+        events: [
+          {
+            id: EventId.make(`side-chat-parent-run-${ordinal}`),
+            type: "run.created",
+            threadId: sideChatParentThreadId,
+            runId,
+            occurredAt: now,
+            payload: {
+              id: runId,
+              threadId: sideChatParentThreadId,
+              ordinal,
+              providerInstanceId: instanceId,
+              modelSelection,
+              providerThreadId: null,
+              userMessageId: MessageId.make(`side-chat-parent-message-${ordinal}`),
+              rootNodeId: null,
+              activeAttemptId: null,
+              status,
+              queuePosition: null,
+              requestedAt: now,
+              startedAt: now,
+              completedAt: status === "running" ? null : now,
+              checkpointId: null,
+              contextHandoffId: null,
+            },
+          },
+        ],
+      });
+    }
+    return orchestrator;
+  });
+
+const openSideChat = (
+  orchestrator: Orchestrator.OrchestratorV2["Service"],
+  targetThreadId = sideChatThreadId,
+) =>
+  orchestrator.dispatch({
+    type: "thread.side-chat.open",
+    commandId: CommandId.make(`open-${targetThreadId}`),
+    parentThreadId: sideChatParentThreadId,
+    sideChatThreadId: targetThreadId,
+    createdBy: "user",
+    creationSource: "web",
+  });
+
+it.effect("opens a side chat from the latest finished run while the parent still works", () => {
+  const { instanceId, layer } = sideChatLayerFor("claudeAgent");
+  return Effect.gen(function* () {
+    const orchestrator = yield* createSideChatParent(instanceId, [
+      "completed",
+      "completed",
+      "running",
+    ]);
+    yield* orchestrator.dispatch({
+      type: "thread.pin",
+      commandId: CommandId.make("pin-side-chat-parent"),
+      threadId: sideChatParentThreadId,
+    });
+    yield* openSideChat(orchestrator);
+
+    const sideChat = (yield* orchestrator.getThreadProjection(sideChatThreadId)).thread;
+    assert.deepEqual(sideChat.sideChat, { canReadFiles: false });
+    assert.equal(sideChat.interactionMode, "default");
+    assert.isNull(sideChat.pinnedAt);
+    assert.equal(sideChat.lineage.parentThreadId, sideChatParentThreadId);
+    assert.deepEqual(sideChat.forkedFrom, {
+      type: "run",
+      threadId: sideChatParentThreadId,
+      runId: RunId.make("side-chat-parent-run-2"),
+    });
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("keeps one side chat per parent", () => {
+  const { instanceId, layer } = sideChatLayerFor("claudeAgent");
+  return Effect.gen(function* () {
+    const orchestrator = yield* createSideChatParent(instanceId, ["completed"]);
+    yield* openSideChat(orchestrator);
+
+    const error = yield* openSideChat(orchestrator, ThreadId.make("second-side-chat")).pipe(
+      Effect.flip,
+    );
+    assert.include(String("cause" in error ? error.cause : error), "already has side chat");
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("refuses side chats outside Claude threads", () => {
+  const { instanceId, layer } = sideChatLayerFor("codex");
+  return Effect.gen(function* () {
+    const orchestrator = yield* createSideChatParent(instanceId, ["completed"]);
+
+    const error = yield* openSideChat(orchestrator).pipe(Effect.flip);
+    assert.include(
+      String("cause" in error ? error.cause : error),
+      "only available in Claude threads",
+    );
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("switches file reading on a side chat only", () => {
+  const { instanceId, layer } = sideChatLayerFor("claudeAgent");
+  return Effect.gen(function* () {
+    const orchestrator = yield* createSideChatParent(instanceId, ["completed"]);
+    yield* openSideChat(orchestrator);
+    yield* orchestrator.dispatch({
+      type: "thread.side-chat.read-files.set",
+      commandId: CommandId.make("side-chat-read-files-on"),
+      threadId: sideChatThreadId,
+      canReadFiles: true,
+    });
+    const sideChat = (yield* orchestrator.getThreadProjection(sideChatThreadId)).thread;
+    assert.deepEqual(sideChat.sideChat, { canReadFiles: true });
+
+    const error = yield* orchestrator
+      .dispatch({
+        type: "thread.side-chat.read-files.set",
+        commandId: CommandId.make("parent-read-files-on"),
+        threadId: sideChatParentThreadId,
+        canReadFiles: true,
+      })
+      .pipe(Effect.flip);
+    assert.include(String("cause" in error ? error.cause : error), "is not a side chat");
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("keeps a side chat on its provider instance", () => {
+  const { instanceId, layer } = sideChatLayerFor("claudeAgent");
+  return Effect.gen(function* () {
+    const orchestrator = yield* createSideChatParent(instanceId, ["completed"]);
+    yield* openSideChat(orchestrator);
+
+    const error = yield* orchestrator
+      .dispatch({
+        type: "provider.switch",
+        commandId: CommandId.make("side-chat-provider-switch"),
+        threadId: sideChatThreadId,
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+      })
+      .pipe(Effect.flip);
+    assert.include(
+      String("cause" in error ? error.cause : error),
+      "cannot switch to another provider",
+    );
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("deletes the side chat once its parent settles", () => {
+  const { instanceId, layer } = sideChatLayerFor("claudeAgent");
+  return Effect.gen(function* () {
+    const orchestrator = yield* createSideChatParent(instanceId, ["completed"]);
+    const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+    yield* openSideChat(orchestrator);
+
+    yield* orchestrator.dispatch({
+      type: "thread.settle",
+      commandId: CommandId.make("settle-side-chat-parent"),
+      threadId: sideChatParentThreadId,
+    });
+    yield* worker.drain();
+
+    const sideChat = (yield* orchestrator.getThreadProjection(sideChatThreadId)).thread;
+    assert.isNotNull(sideChat.deletedAt);
+    const parent = (yield* orchestrator.getThreadProjection(sideChatParentThreadId)).thread;
+    assert.isNull(parent.deletedAt);
+  }).pipe(Effect.provide(layer));
+});

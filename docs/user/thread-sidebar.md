@@ -208,6 +208,21 @@ unavailable, and an existing pair closes and keeps the thread you selected.
 Archiving, deleting, or moving either thread to another project also closes its
 pair. To close a pair yourself, choose **Close side by side** or press `mod+\` again.
 
+## Ask a side question
+
+On web and desktop, a Claude thread can have one side chat for questions you don't
+want in the main conversation. Press the **Side chat** button next to the thread
+details button to start it, and press it again to hide or show it. It works while the
+main thread is still running.
+
+The side chat starts with everything up to the main thread's latest finished reply. It
+does not see messages that come after that. Claude can't change files there. It can't
+read them either until you turn on **Can read files** in the side chat, which applies
+from your next message.
+
+Side chats don't appear in the sidebar, search, or the mobile app. Settling, archiving,
+or deleting the main thread deletes its side chat, and un-settling does not bring it back.
+
 ## Inspect agent work
 
 **Limited** means the provider stopped on a usage or rate limit. The conversation

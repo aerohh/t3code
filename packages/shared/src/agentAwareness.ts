@@ -4,6 +4,7 @@ import type {
   Project,
   ThreadId,
 } from "@t3tools/contracts";
+import { isSideChatThread } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
 import { backgroundWorkHoldsCompletion } from "./orchestrationV2PendingBackgroundWork.ts";
@@ -48,6 +49,7 @@ export interface ProjectThreadAwarenessV2Input {
     | "modelSelection"
     | "pendingBackgroundTasks"
     | "pendingRuntimeRequest"
+    | "sideChat"
     | "status"
     | "title"
     | "updatedAt"
@@ -59,7 +61,7 @@ export function projectThreadAwarenessV2(
   input: ProjectThreadAwarenessV2Input,
 ): AgentAwarenessState | null {
   const { environmentId, project, thread } = input;
-  if (thread.lineage.relationshipToParent === "subagent") return null;
+  if (thread.lineage.relationshipToParent === "subagent" || isSideChatThread(thread)) return null;
   const phase = resolveThreadAwarenessPhaseV2(thread);
   if (phase === null) {
     return null;

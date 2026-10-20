@@ -4,6 +4,7 @@ import {
 } from "@t3tools/shared/sourceControl";
 import {
   CommandId,
+  isSideChatThread,
   type OrchestrationProjectShell,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ThreadShell,
@@ -175,6 +176,8 @@ export const make = Effect.gen(function* () {
     const threads = threadSnapshot.threads.filter(
       (thread) =>
         thread.archivedAt === null &&
+        // A side chat shares its parent's branch but must not show up as linked to its PR.
+        !isSideChatThread(thread) &&
         ((thread.settledOverride !== "settled" && thread.settledAt === null) ||
           request.threadId !== null ||
           pendingBackfill.has(thread.id)) &&

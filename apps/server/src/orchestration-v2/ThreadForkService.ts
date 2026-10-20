@@ -53,6 +53,34 @@ export function forkableSourceRunStatusError(
   return `Fork source run ${run.id} is ${run.status}; in-progress and rolled-back runs cannot be forked.`;
 }
 
+/**
+ * Turns a planned fork into a side chat. A fork copies everything from its
+ * source, so this clears what would make the hidden chat act on its own:
+ * pins, list positions, pull request watches and pending recovery.
+ */
+export function sideChatThreadFromFork(
+  forkThread: OrchestrationV2AppThread,
+): OrchestrationV2AppThread {
+  const { rollbackRequestId: _rollbackRequestId, ...thread } = forkThread;
+  return {
+    ...thread,
+    sideChat: { canReadFiles: false },
+    interactionMode: "default",
+    pinnedAt: null,
+    pinOrderKey: null,
+    activeOrderKey: null,
+    autoSettleDisabledAt: null,
+    unsettledAt: null,
+    lastSnoozeWakeAt: null,
+    linkedPullRequest: null,
+    branchPullRequest: null,
+    pullRequests: [],
+    limitRecovery: null,
+    titleRegeneration: null,
+    rollbackFailure: null,
+  };
+}
+
 export interface ThreadForkServiceV2Shape {
   readonly plan: (input: {
     readonly sourceProjection: Pick<OrchestrationV2ThreadProjection, "thread">;
@@ -85,8 +113,10 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
             cause: forkableSourceRunStatusError(input.sourceRun),
           });
         }
+        // A fork of a side chat is an ordinary thread, so it must not copy the side chat mark.
+        const { sideChat: _sourceSideChat, ...sourceThread } = input.sourceProjection.thread;
         const targetThread: OrchestrationV2AppThread = {
-          ...input.sourceProjection.thread,
+          ...sourceThread,
           createdBy: input.createdBy,
           creationSource: input.creationSource,
           id: input.targetThreadId,
