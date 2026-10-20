@@ -142,13 +142,13 @@ export function useThreadFind({
   // request another jump, so these keep their identity until a field changes.
   const [storedTimeline, setTimeline] = useState(() => ({
     fields: nextTimeline,
-    props: { ...nextTimeline, findPositionReaderRef: positionReader },
+    props: { ...nextTimeline, findPositionReaderRef: positionReader, closeFind: close },
   }));
   let timeline = storedTimeline;
   if (!sameTimeline(timeline.fields, nextTimeline)) {
     timeline = {
       fields: nextTimeline,
-      props: { ...nextTimeline, findPositionReaderRef: positionReader },
+      props: { ...nextTimeline, findPositionReaderRef: positionReader, closeFind: close },
     };
     setTimeline(timeline);
   }
@@ -301,7 +301,7 @@ export function useThreadFind({
 
 type TimelineFields = Omit<
   ReturnType<typeof useThreadFind>["timelineProps"],
-  "findPositionReaderRef"
+  "findPositionReaderRef" | "closeFind"
 >;
 
 function sameTimeline(a: TimelineFields, b: TimelineFields) {

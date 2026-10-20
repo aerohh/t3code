@@ -1,4 +1,5 @@
-import { EnvironmentId, MessageId } from "@t3tools/contracts";
+import { messageBookmarkNavigation } from "@t3tools/client-runtime/state/messageBookmarks";
+import { EnvironmentId, MessageId, ThreadId } from "@t3tools/contracts";
 import type { LegendListRef } from "@legendapp/list/react";
 import { createRef, type ComponentProps, type ReactElement } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -6,6 +7,8 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import "~/index.css";
 
 import { act, render } from "../../../test/render";
+import { appAtomRegistry, AppAtomRegistryProvider } from "../../rpc/atomRegistry";
+import { toastManager } from "../ui/toast";
 import { MessagesTimeline } from "./MessagesTimeline";
 import { remarkThoughtPreview } from "./TimelineWorkEntryRow.logic";
 import { parseMarkdownWithMath } from "@t3tools/shared/markdownMath";
@@ -161,6 +164,82 @@ describe("MessagesTimeline messages", () => {
     expect(screen.container.innerHTML).not.toContain("javascript:");
     await click(screen.button("Safe details"));
     expect((globalThis as { __t3Xss?: number }).__t3Xss).toBeUndefined();
+  });
+});
+
+function messageRow(text: string, id: string): Entry {
+  return { ...message(text, {}, id), id };
+}
+
+function requestBookmarkJump(routeThreadKey: string, messageId: string) {
+  const navigation = messageBookmarkNavigation(routeThreadKey);
+  appAtomRegistry.set(navigation, {
+    bookmark: {
+      threadId: ThreadId.make("thread"),
+      messageId: MessageId.make(messageId),
+      runId: null,
+      title: "Bookmarked",
+      createdAt: CREATED_AT,
+    },
+    requestId: 1,
+  });
+  return navigation;
+}
+
+describe("MessagesTimeline bookmark jumps", () => {
+  it("loads older history until the bookmarked message arrives, then finishes the jump", async () => {
+    const props = baseProps();
+    const onLoadEarlier = vi.fn();
+    const historyControls = { hasMoreHistory: true, loading: false, error: null, onLoadEarlier };
+    const navigation = requestBookmarkJump(props.routeThreadKey, "message-old");
+    const newer = messageRow("Newer", "message-new");
+    await using screen = await renderElement(
+      <AppAtomRegistryProvider>
+        <MessagesTimeline {...props} timelineEntries={[newer]} historyControls={historyControls} />
+      </AppAtomRegistryProvider>,
+    );
+
+    await vi.waitFor(() => expect(onLoadEarlier).toHaveBeenCalledExactlyOnceWith("message-old"));
+    expect(appAtomRegistry.get(navigation)).not.toBeNull();
+
+    await screen.rerender(
+      <AppAtomRegistryProvider>
+        <MessagesTimeline
+          {...props}
+          timelineEntries={[messageRow("Older", "message-old"), newer]}
+          historyControls={historyControls}
+        />
+      </AppAtomRegistryProvider>,
+    );
+    await vi.waitFor(() => expect(appAtomRegistry.get(navigation)).toBeNull());
+  });
+
+  it("says the message is gone once all history is loaded without it", async () => {
+    const props = baseProps();
+    const navigation = requestBookmarkJump(props.routeThreadKey, "message-removed");
+    using addToast = vi.spyOn(toastManager, "add");
+    await using _screen = await renderElement(
+      <AppAtomRegistryProvider>
+        <MessagesTimeline
+          {...props}
+          timelineEntries={[messageRow("Newer", "message-new")]}
+          historyControls={{
+            hasMoreHistory: false,
+            loading: false,
+            error: null,
+            onLoadEarlier: vi.fn(),
+          }}
+        />
+      </AppAtomRegistryProvider>,
+    );
+
+    await vi.waitFor(() =>
+      expect(addToast).toHaveBeenCalledExactlyOnceWith({
+        type: "info",
+        title: "This message is no longer in the chat",
+      }),
+    );
+    expect(appAtomRegistry.get(navigation)).toBeNull();
   });
 });
 

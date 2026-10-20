@@ -1064,7 +1064,7 @@ export function failedFeedRunIds(
   return failed;
 }
 
-function deriveThreadFeedRunFolds(
+export function deriveThreadFeedRunFolds(
   feed: ReadonlyArray<ThreadFeedEntry>,
   latestRun: ThreadFeedLatestRun | null,
   runlessWorkActive: boolean,

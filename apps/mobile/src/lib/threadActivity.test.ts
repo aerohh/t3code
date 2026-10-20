@@ -26,6 +26,7 @@ import {
   buildThreadFeed,
   createThreadFeedCache,
   deriveThreadFeedPresentation,
+  deriveThreadFeedRunFolds,
   type ThreadFeedCache,
   type ThreadFeedEntry,
   type ThreadFeedLatestRun,
@@ -1640,4 +1641,56 @@ describe("streamed feed updates", () => {
     expect(showsDelegation(steps[2]!)).toBe(true);
     expect(showsDelegation(steps[3]!)).toBe(false);
   });
+});
+
+it("finds the fold containing an imported bookmarked message and reveals it", () => {
+  const imported = <T extends OrchestrationV2TurnItem>(item: T, id: string) => ({
+    ...item,
+    id: TurnItemId.make(id),
+    runId: null,
+  });
+  const feed = buildThreadFeed(
+    [
+      imported(userMessage("2026-06-20T00:00:00.000Z"), "saved-prompt"),
+      imported(
+        {
+          ...assistantMessage("2026-06-20T00:00:02.000Z"),
+          messageId: MessageId.make("saved-update"),
+        },
+        "saved-update",
+      ),
+      imported(command("2026-06-20T00:00:04.000Z"), "saved-command"),
+      imported(
+        {
+          ...assistantMessage("2026-06-20T00:00:06.000Z"),
+          messageId: MessageId.make("saved-middle"),
+        },
+        "saved-middle",
+      ),
+      imported(
+        {
+          ...assistantMessage("2026-06-20T00:00:08.000Z"),
+          messageId: MessageId.make("saved-answer"),
+        },
+        "saved-answer",
+      ),
+    ].map((item, position) => projected(item, position)),
+  );
+  const folds = deriveThreadFeedRunFolds(feed, null, false, new Set());
+  const hidden = feed.find(
+    (entry) =>
+      entry.type === "message" &&
+      [...folds.values()].some((fold) => fold.hiddenEntryIds.has(entry.id)),
+  );
+  expect(hidden).toBeDefined();
+  const fold = [...folds.values()].find((fold) => fold.hiddenEntryIds.has(hidden!.id))!;
+  expect(fold.runId).toMatch(/^runless:/);
+  expect(
+    deriveThreadFeedPresentation(feed, null, new Set()).some((entry) => entry.id === hidden!.id),
+  ).toBe(false);
+  expect(
+    deriveThreadFeedPresentation(feed, null, new Set([fold.runId])).some(
+      (entry) => entry.id === hidden!.id,
+    ),
+  ).toBe(true);
 });

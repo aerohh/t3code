@@ -3,6 +3,17 @@
 Use a new thread for a separate task. Choose **New worktree** when its code changes
 need a separate branch and working directory.
 
+## Bookmark messages
+
+Bookmark a user or assistant message to return to it later. Open **Chat bookmarks**
+in the chat header and select a bookmark to jump to its message, including older
+history. Each chat can have any number of bookmarks. Bookmarks are saved on the
+thread's environment and are available from web, desktop, and mobile.
+
+New bookmarks use your configured text generation model for a short title. If it
+is unavailable or does not respond, a few words from the message remain as the
+title. You can rename or remove bookmarks from the list at any time.
+
 ## Start a thread
 
 On web and desktop, a new thread keeps the current project and carries your model

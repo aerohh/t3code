@@ -1,3 +1,4 @@
+import { MessageBookmarkButton } from "./MessageBookmarks";
 import { shouldPreserveAssistantLineBreaks } from "@t3tools/shared/markdownPipeline";
 import { type RunId } from "@t3tools/contracts";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
@@ -176,6 +177,9 @@ function AssistantMessageMeta({
         <span className="rounded-full border border-border/70 px-1.5 py-0.5 font-mono text-3xs text-muted-foreground">
           {projectedItem.item.status}
         </span>
+      ) : null}
+      {ctx.bookmarksEnabled && ctx.threadRef ? (
+        <MessageBookmarkButton thread={ctx.threadRef} messageId={message.id} />
       ) : null}
       <AssistantCopyButton
         message={message}

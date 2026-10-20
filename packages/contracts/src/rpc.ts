@@ -377,7 +377,20 @@ import {
 import { VcsError } from "./vcs.ts";
 import { Project, ProjectMutation, ProjectMutationError } from "./project.ts";
 
+import {
+  MessageBookmark,
+  MessageBookmarkError,
+  MessageBookmarksInput,
+  MessageBookmarkTarget,
+  MessageBookmarkRenameInput,
+} from "./messageBookmarks.ts";
+
 export const WS_METHODS = {
+  messageBookmarksSubscribe: "messageBookmarks.subscribe",
+  messageBookmarksList: "messageBookmarks.list",
+  messageBookmarksAdd: "messageBookmarks.add",
+  messageBookmarksRename: "messageBookmarks.rename",
+  messageBookmarksRemove: "messageBookmarks.remove",
   projectsList: "projects.list",
   projectsAdd: "projects.add",
   projectsRemove: "projects.remove",
@@ -1657,6 +1670,33 @@ const WsOrchestrationV2SearchThreadStreamRpc = Rpc.make(
   },
 );
 
+const WsMessageBookmarksSubscribeRpc = Rpc.make(WS_METHODS.messageBookmarksSubscribe, {
+  payload: MessageBookmarksInput,
+  success: Schema.Array(MessageBookmark),
+  error: Schema.Union([MessageBookmarkError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+const WsMessageBookmarksListRpc = Rpc.make(WS_METHODS.messageBookmarksList, {
+  payload: MessageBookmarksInput,
+  success: Schema.Array(MessageBookmark),
+  error: Schema.Union([MessageBookmarkError, EnvironmentAuthorizationError]),
+});
+const WsMessageBookmarksAddRpc = Rpc.make(WS_METHODS.messageBookmarksAdd, {
+  payload: MessageBookmarkTarget,
+  success: Schema.Void,
+  error: Schema.Union([MessageBookmarkError, EnvironmentAuthorizationError]),
+});
+const WsMessageBookmarksRenameRpc = Rpc.make(WS_METHODS.messageBookmarksRename, {
+  payload: MessageBookmarkRenameInput,
+  success: Schema.Void,
+  error: Schema.Union([MessageBookmarkError, EnvironmentAuthorizationError]),
+});
+const WsMessageBookmarksRemoveRpc = Rpc.make(WS_METHODS.messageBookmarksRemove, {
+  payload: MessageBookmarkTarget,
+  success: Schema.Void,
+  error: Schema.Union([MessageBookmarkError, EnvironmentAuthorizationError]),
+});
+
 const WsOrchestrationV2SearchThreadsRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.searchThreads, {
   payload: OrchestrationSearchThreadsInput,
   success: OrchestrationSearchThreadsResult,
@@ -1879,7 +1919,16 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
   { error: EnvironmentAuthorizationError },
 ) {}
 
-export const WsRpcGroup = RpcGroup.make(
+// The server implements this group in its own handler layer; see ws.ts.
+export const MessageBookmarksRpcGroup = RpcGroup.make(
+  WsMessageBookmarksListRpc,
+  WsMessageBookmarksSubscribeRpc,
+  WsMessageBookmarksAddRpc,
+  WsMessageBookmarksRenameRpc,
+  WsMessageBookmarksRemoveRpc,
+).middleware(RpcScopeAuthorization);
+
+export const WsCoreRpcGroup = RpcGroup.make(
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -2079,3 +2128,5 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeThreadRpc,
   WsOrchestrationV2SubscribeCommandOutputRpc,
 ).middleware(RpcScopeAuthorization);
+
+export const WsRpcGroup = WsCoreRpcGroup.merge(MessageBookmarksRpcGroup);

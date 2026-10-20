@@ -1,3 +1,4 @@
+import { MessageBookmarksPopover } from "./MessageBookmarks";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
@@ -205,6 +206,7 @@ export function SideChatCard({
         <div className="flex shrink-0 items-center gap-3 border-b border-border/60 py-2 pr-2 pl-4">
           <span className="text-sm font-medium text-foreground">Side chat</span>
           <div className="ml-auto flex items-center gap-1">
+            {sideChatRef ? <MessageBookmarksPopover thread={sideChatRef} /> : null}
             {sideChatRef ? (
               <SideChatStartFreshButton sideChatRef={sideChatRef} onStartFresh={onStartFresh} />
             ) : null}

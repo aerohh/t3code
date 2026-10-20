@@ -368,6 +368,7 @@ export type ProjectionRecords<K extends ProjectionRecordField> = Pick<
 export interface ProjectionTimelinePageOptions {
   readonly afterPosition?: number;
   readonly itemId?: TurnItemId;
+  readonly messageId?: MessageId;
   readonly view?: "messages" | "activity";
   readonly limit: number;
 }
@@ -403,6 +404,10 @@ export interface ProjectionStoreV2Shape {
     threadId: ThreadId,
     options: ProjectionTimelinePageOptions,
   ) => Effect.Effect<ProjectionTimelinePage, ProjectionStoreV2Error>;
+  /** Messages the thread's timeline shows, including ones inherited from a fork source. */
+  readonly getVisibleMessageIds: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ReadonlySet<MessageId>, ProjectionStoreV2Error>;
   readonly getMessageCount: (threadId: ThreadId) => Effect.Effect<number, ProjectionStoreV2Error>;
   readonly getNextTurnItemOrdinal: (
     threadId: ThreadId,
@@ -5527,13 +5532,15 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             const matching = index.visible
               .map((row, position) => ({ ...row, position }))
               .filter((row) =>
-                options.itemId === undefined
-                  ? row.position > (options.afterPosition ?? -1) &&
-                    (options.view === "activity" ||
-                      ["user_message", "assistant_message", "proposed_plan"].includes(
-                        row.item.type,
-                      ))
-                  : row.sourceItemId === options.itemId,
+                options.messageId !== undefined
+                  ? "messageId" in row.item && row.item.messageId === options.messageId
+                  : options.itemId === undefined
+                    ? row.position > (options.afterPosition ?? -1) &&
+                      (options.view === "activity" ||
+                        ["user_message", "assistant_message", "proposed_plan"].includes(
+                          row.item.type,
+                        ))
+                    : row.sourceItemId === options.itemId,
               );
             const page = matching.slice(0, options.limit);
             const items = yield* Effect.forEach(page, (row) =>
@@ -5582,6 +5589,25 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               : new ProjectionStoreReadError({ threadId, cause }),
           ),
         );
+
+    const getVisibleMessageIds: ProjectionStoreV2Shape["getVisibleMessageIds"] = (threadId) =>
+      sql.withTransaction(readTimelineIndex(threadId, new Set())).pipe(
+        Effect.map(
+          (index) =>
+            new Set(
+              index.visible.flatMap((row) =>
+                "messageId" in row.item && row.item.messageId !== undefined
+                  ? [row.item.messageId]
+                  : [],
+              ),
+            ),
+        ),
+        Effect.mapError((cause) =>
+          isProjectionStoreThreadNotFoundError(cause) || isProjectionStoreReadError(cause)
+            ? cause
+            : new ProjectionStoreReadError({ threadId, cause }),
+        ),
+      );
 
     const getThreadSnapshotWindow: ProjectionStoreV2Shape["getThreadSnapshotWindow"] = (
       threadId,
@@ -6538,6 +6564,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getThreadSnapshot,
       getThreadSnapshotWindow,
       getTimelinePage,
+      getVisibleMessageIds,
       getThreadHistoryPage,
       searchThread,
       searchThreadStream,
@@ -7305,11 +7332,15 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
         service.getThreadProjection(threadId).pipe(
           Effect.map((projection) => {
             const matching = projection.visibleTurnItems.filter((row) =>
-              options.itemId === undefined
-                ? row.position > (options.afterPosition ?? -1) &&
-                  (options.view === "activity" ||
-                    ["user_message", "assistant_message", "proposed_plan"].includes(row.item.type))
-                : row.sourceItemId === options.itemId,
+              options.messageId !== undefined
+                ? "messageId" in row.item && row.item.messageId === options.messageId
+                : options.itemId === undefined
+                  ? row.position > (options.afterPosition ?? -1) &&
+                    (options.view === "activity" ||
+                      ["user_message", "assistant_message", "proposed_plan"].includes(
+                        row.item.type,
+                      ))
+                  : row.sourceItemId === options.itemId,
             );
             return {
               items: matching.slice(0, options.limit),
@@ -7318,6 +7349,19 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
             };
           }),
         ),
+      getVisibleMessageIds: (threadId) =>
+        service
+          .getThreadProjection(threadId)
+          .pipe(
+            Effect.map(
+              (projection) =>
+                new Set(
+                  projection.visibleTurnItems.flatMap((row) =>
+                    "messageId" in row.item ? [row.item.messageId] : [],
+                  ),
+                ),
+            ),
+          ),
       getThreadSnapshotWindow: (threadId, options) =>
         service.getThreadSnapshot(threadId).pipe(
           Effect.map((snapshot) => {

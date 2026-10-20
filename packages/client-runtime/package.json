@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./state/messageBookmarks": "./src/state/messageBookmarks.ts",
     "./workspace-basename-lookup": {
       "types": "./src/workspaceBasenameLookup.ts",
       "default": "./src/workspaceBasenameLookup.ts"

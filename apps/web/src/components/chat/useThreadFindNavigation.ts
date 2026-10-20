@@ -16,7 +16,12 @@ export function useThreadFindNavigation({
   contentInsetEndAdjustment,
   listReady,
   historyControls,
+  onPositioned,
+  onMissing,
 }: {
+  onPositioned?: (() => void) | undefined;
+  /** Called when a row-only jump (empty query) exhausted history without finding the row. */
+  onMissing?: (() => void) | undefined;
   container: HTMLElement | null;
   query: string;
   match: ThreadFindMatch | null;
@@ -94,14 +99,17 @@ export function useThreadFindNavigation({
       entries.some((entry) => entry.id === match.entryId)
     )
       return;
-    if (!historyControls?.hasMoreHistory || historyControls.loading || historyControls.error)
+    if (historyControls?.loading || historyControls?.error) return;
+    if (!historyControls?.hasMoreHistory) {
+      if (query.length === 0) onMissing?.();
       return;
+    }
     const cursor = entries[0]?.id ?? "first";
     if (requestedPagesRef.current.pages.has(cursor)) return;
     requestedPagesRef.current.pages.add(cursor);
 
     historyControls.onLoadEarlier(match.entryId);
-  }, [entries, historyControls, listReady, match, matchKey, rowIndex]);
+  }, [entries, historyControls, listReady, match, matchKey, onMissing, query, rowIndex]);
   const reveal = (range: Range | null) => {
     activeRangeRef.current = range;
     if (!matchKey) {
@@ -172,7 +180,10 @@ export function useThreadFindNavigation({
 
           positionedEntriesRef.current = entries;
           settledMatchRef.current = matchKey;
-          revealRef.current(activeRangeRef.current);
+          if (query.length === 0) {
+            revealedMatchRef.current = matchKey;
+            onPositioned?.();
+          } else revealRef.current(activeRangeRef.current);
         });
     };
     if (!range) {
@@ -232,6 +243,12 @@ export function useThreadFindNavigation({
   useLayoutEffect(() => {
     revealRef.current = reveal;
   }, [reveal]);
+
+  // Bookmarks target the row itself, including messages with no searchable text.
+  // Re-run after paging or expanding a folded turn materializes that row.
+  useEffect(() => {
+    if (query.length === 0) reveal(null);
+  }, [query, reveal]);
 
   useThreadFindHighlights({
     container,
