@@ -1,4 +1,5 @@
 import { pullRequestHostOf, type SourceControlProviderKind } from "@t3tools/contracts";
+import { useThreadPane } from "../threadPaneContext";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { useProjects, useServerConfigs, useThreadShells } from "~/state/entities";
 import {
@@ -866,6 +867,7 @@ function SortableTab({
 }
 
 export function RightPanelTabs(props: RightPanelTabsProps) {
+  const { side: paneSide } = useThreadPane();
   const ownsDesktopTitleBar = isElectron && props.mode === "inline";
   const browserProfiles = useBrowserDefaults().profiles;
   const { resolvedTheme } = useTheme();
@@ -1175,7 +1177,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           props.mode === "inline" && !props.layoutControls ? "pr-28" : "pr-3",
           ownsDesktopTitleBar && "drag-region",
           ownsDesktopTitleBar && "wco:pr-(--workspace-native-controls-inset)",
-          props.mode === "inline" && props.maximized && COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
+          props.mode === "inline" &&
+            props.maximized &&
+            paneSide !== "right" &&
+            COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
         )}
         data-right-panel-tabbar
       >

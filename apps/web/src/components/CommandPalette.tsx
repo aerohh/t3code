@@ -61,6 +61,7 @@ import {
   ChartNoAxesColumnIcon,
   CheckIcon,
   ChevronRightIcon,
+  Columns2Icon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderGit2Icon,
@@ -162,6 +163,12 @@ import {
 } from "../lib/utils";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { buildThreadRouteParams, resolveThreadRouteTarget } from "../threadRoutes";
+import {
+  canPairThreads,
+  resolveSideBySideMenuOption,
+  threadPairFitsOnScreen,
+  useThreadPairStore,
+} from "../threadPairStore";
 import { useAvailableSettingsSearchItems } from "./settings/useAvailableSettingsSearchItems";
 import {
   applyWslEnvironmentConfiguration,
@@ -234,8 +241,11 @@ import { Kbd, KbdGroup } from "./ui/kbd";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
-import type { ChatComposerHandle } from "./chat/ChatComposer";
+import {
+  ActiveComposerSlotContext,
+  createActiveComposerSlot,
+  useActiveComposerSlot,
+} from "../composerHandleContext";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import {
@@ -388,7 +398,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   const clearOpenIntent = useCallback(() => dispatch({ _tag: "ClearOpenIntent" }), []);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { theme, themeHalves, resolvedTheme, appearanceMode, setAppearanceMode } = useTheme();
-  const composerHandleRef = useRef<ChatComposerHandle | null>(null);
+  const [activeComposerSlot] = useState(createActiveComposerSlot);
   const routeTarget = useParams({
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
@@ -428,7 +438,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           terminalOpen,
           previewFocus: isPreviewFocused(),
           previewOpen,
-          modelPickerOpen: composerHandleRef.current?.isModelPickerOpen() ?? false,
+          modelPickerOpen: activeComposerSlot.getComposer()?.isModelPickerOpen() ?? false,
         },
       });
       if (command === "appearance.cycle") {
@@ -483,6 +493,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
+    activeComposerSlot,
     appearanceMode,
     keybindings,
     navigate,
@@ -501,6 +512,8 @@ export function CommandPalette({ children }: { children: ReactNode }) {
       onOpenCommandPalette((detail) => {
         if (detail.open === "new-thread-in") {
           openNewThreadIn();
+        } else if (detail.open === "open-beside") {
+          dispatch({ _tag: "OpenBeside" });
         } else if (detail.open === "add-project") {
           openAddProject();
         } else if (detail.query !== undefined) {
@@ -517,7 +530,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   );
 
   return (
-    <ComposerHandleContext value={composerHandleRef}>
+    <ActiveComposerSlotContext value={activeComposerSlot}>
       <CommandDialog
         open={state.open}
         onOpenChange={(open, eventDetails) => {
@@ -541,7 +554,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           clearOpenIntent={clearOpenIntent}
         />
       </CommandDialog>
-    </ComposerHandleContext>
+    </ActiveComposerSlotContext>
   );
 }
 
@@ -552,7 +565,7 @@ function CommandPaletteDialog(props: {
   readonly openOverlayMode: (mode: SearchOverlayMode) => void;
   readonly clearOpenIntent: () => void;
 }) {
-  const composerHandleRef = useComposerHandleContext();
+  const activeComposerSlot = useActiveComposerSlot();
 
   return (
     <CommandDialogPopup
@@ -568,7 +581,7 @@ function CommandPaletteDialog(props: {
       data-palette-mode={props.mode}
       data-testid="command-palette"
       finalFocus={() => {
-        composerHandleRef?.current?.focusAtEnd();
+        activeComposerSlot?.getComposer()?.focusAtEnd();
         return false;
       }}
       onBackdropPointerDown={() => {
@@ -699,6 +712,7 @@ function OpenCommandPaletteDialog(props: {
   }, [activeThreadReferenceCopyTarget]);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
+  const threadPairs = useThreadPairStore((store) => store.pairs);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const {
     theme,
@@ -1855,6 +1869,85 @@ function OpenCommandPaletteDialog(props: {
       run: () => startScratchThread(scratchTargetEnvironmentId),
     });
   }
+
+  const activeThreadSideBySide = activeThread
+    ? resolveSideBySideMenuOption({
+        pairs: threadPairs,
+        thread: activeThread,
+        currentThread: activeThread,
+        inScratchProject: projects.some(
+          (project) =>
+            project.environmentId === activeThread.environmentId &&
+            project.id === activeThread.projectId &&
+            project.isScratch === true,
+        ),
+        fitsOnScreen: threadPairFitsOnScreen(),
+      })
+    : null;
+  const openBesideItems =
+    activeThread && activeThreadSideBySide?.kind === "pick"
+      ? buildThreadActionItems({
+          threads: threads.filter(
+            (thread) =>
+              thread.lineage.relationshipToParent !== "subagent" &&
+              canPairThreads(threadPairs, activeThread, thread),
+          ),
+          projectTitleById,
+          sortOrder: clientSettings.sidebarThreadSortOrder,
+          icon: <Columns2Icon className={ITEM_ICON_CLASS} />,
+          runThread: async (thread) => {
+            useThreadPairStore
+              .getState()
+              .openPair(
+                scopeThreadRef(activeThread.environmentId, activeThread.id),
+                scopeThreadRef(thread.environmentId, thread.id),
+              );
+          },
+        })
+      : [];
+  if (activeThread && activeThreadSideBySide?.kind === "close") {
+    actionItems.push({
+      kind: "action",
+      value: "action:close-side-by-side",
+      searchTerms: ["close side by side", "split", "pair"],
+      title: "Close side by side",
+      icon: <Columns2Icon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "thread.sideBySide",
+      run: async () => {
+        useThreadPairStore
+          .getState()
+          .closePair(scopeThreadRef(activeThread.environmentId, activeThread.id));
+      },
+    });
+  } else if (activeThreadSideBySide?.kind === "pick") {
+    actionItems.push({
+      kind: "submenu",
+      value: "action:open-beside",
+      searchTerms: ["open beside", "side by side", "split", "pair", "two chats"],
+      title: "Open beside...",
+      ...(activeThreadSideBySide.blockedReason === null
+        ? {}
+        : { description: "Not enough room for two chats", disabled: true }),
+      icon: <Columns2Icon className={ITEM_ICON_CLASS} />,
+      addonIcon: <Columns2Icon className={ADDON_ICON_CLASS} />,
+      shortcutCommand: "thread.sideBySide",
+      groups: [{ value: "open-beside", label: "Open beside", items: openBesideItems }],
+    });
+  }
+
+  useLayoutEffect(() => {
+    if (openIntent?.kind !== "open-beside") return;
+    clearOpenIntent();
+    browseNavigation.invalidate();
+    setAddProjectCloneFlow(null);
+    setNewProjectFlow(null);
+    setViewStack([]);
+    setQuery("");
+    pushPaletteView({
+      addonIcon: <Columns2Icon className={ADDON_ICON_CLASS} />,
+      groups: [{ value: "open-beside", label: "Open beside", items: openBesideItems }],
+    });
+  }, [browseNavigation, clearOpenIntent, openBesideItems, openIntent, pushPaletteView]);
 
   if (activeThreadId && supportsThreadFind) {
     actionItems.push({

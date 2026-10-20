@@ -1,4 +1,5 @@
 import { formatProviderSkillDisplayName } from "@t3tools/shared/inlineSkills";
+import { useThreadPane } from "../../threadPaneContext";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { runtimeModeConfig, runtimeModeOptions as runtimeModes } from "./runtimeModeConfig";
@@ -5596,7 +5597,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     setIsStashMenuOpen(false);
   }, [prompt]);
 
+  const { isActivePane } = useThreadPane();
   useEffect(() => {
+    if (!isActivePane) return;
     const handler = (event: globalThis.KeyboardEvent) => {
       const command = resolveShortcutCommand(event, keybindings, {
         context: {
@@ -5626,6 +5629,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     return () => window.removeEventListener("keydown", handler, true);
   }, [
     activePendingProgress,
+    isActivePane,
     isComposerApprovalState,
     isComposerModelPickerOpen,
     keybindings,

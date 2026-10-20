@@ -15,6 +15,7 @@ import {
   stepThreadFindIndex,
 } from "./threadFind";
 import { subscribeThreadFindOpen } from "./threadFindActionBus";
+import { useThreadPane } from "../../threadPaneContext";
 import { toastManager } from "../ui/toast";
 
 const EMPTY_SKILLS: readonly InlineSkill[] = [];
@@ -92,7 +93,8 @@ export function useThreadFind({
     });
   }, [enabled, state.query, state.threadKey, threadKey]);
   const close = useCallback(() => setState(CLOSED_FIND), []);
-  useEffect(() => subscribeThreadFindOpen(open), [open]);
+  const { isActivePane } = useThreadPane();
+  useEffect(() => (isActivePane ? subscribeThreadFindOpen(open) : undefined), [isActivePane, open]);
 
   const remote = useServerResults(
     isOpen ? thread : null,

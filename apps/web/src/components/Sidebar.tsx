@@ -80,6 +80,7 @@ import {
   ListFilterIcon,
   MessageCircleQuestionIcon,
   PinIcon,
+  Columns2Icon,
   PinOffIcon,
   PlusIcon,
   SettingsIcon,
@@ -106,6 +107,13 @@ import {
 import { useParams, useRouter } from "@tanstack/react-router";
 
 import { useRightPanelStore } from "../rightPanelStore";
+import {
+  findThreadPair,
+  readSideBySideMenuOption,
+  runSideBySideMenuOption,
+  useThreadPairPartner,
+  useThreadPairStore,
+} from "../threadPairStore";
 import {
   isAtomCommandInterrupted,
   settlePromise,
@@ -1147,6 +1155,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // the user visits the thread.
   wokeAt: string | null;
   isActive: boolean;
+  /** Shown beside the active chat as the other half of its pair. */
+  isOnScreenBesideActive: boolean;
   openPullRequestsInRightPanel: boolean;
   jumpLabel: string | null;
   currentEnvironmentId: string | null;
@@ -1232,7 +1242,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   const terminalProcessCount = runningTerminalIds.length;
   // Unsent composer text on this thread. The open thread shows its own
   // composer, so the marker only decorates rows you have navigated away from.
-  const hasUnsentDraft = useThreadHasUnsentDraft(threadRef) && !props.isActive;
+  const hasUnsentDraft =
+    useThreadHasUnsentDraft(threadRef) && !props.isActive && !props.isOnScreenBesideActive;
+  const isPaired = useThreadPairStore((state) => findThreadPair(state.pairs, threadRef) !== null);
   const handleDiscardDraftClick = useCallback(
     (event: ReactMouseEvent) => {
       event.preventDefault();
@@ -1596,11 +1608,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       ? "bg-sidebar-row-active text-sidebar-foreground"
       : isSelected || props.sweepAction !== null
         ? "bg-sidebar-row-selected text-sidebar-foreground"
-        : hasUnsentDraft
-          ? cn(draftSurfaceClassName, "text-sidebar-foreground")
-          : shouldRecede
-            ? "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-            : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
+        : props.isOnScreenBesideActive
+          ? "bg-sidebar-row-active/50 text-sidebar-foreground"
+          : hasUnsentDraft
+            ? cn(draftSurfaceClassName, "text-sidebar-foreground")
+            : shouldRecede
+              ? "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+              : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
     // Background work fades as a whole row, status label included, so it
     // takes less attention than rows that need a human (input, approval).
     shouldRecede &&
@@ -1792,6 +1806,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     )
   ) : null;
 
+  const pairIndicator = isPaired ? (
+    <Columns2Icon
+      aria-label="Side by side"
+      role="img"
+      className="size-3 shrink-0 text-muted-foreground/65"
+    />
+  ) : null;
+
   if (variant === "slim") {
     return (
       <li
@@ -1837,6 +1859,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             </span>
             {draftIndicator}
             {title}
+            {pairIndicator}
             {pinIndicator}
             {terminalStatusIcon}
             {isRegeneratingTitle ? (
@@ -2007,6 +2030,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               ) : (
                 <span className="flex-1" />
               )}
+              {pairIndicator}
               {pinIndicator}
               {/* The visible state owns this slot's width: status at rest,
                   actions on hover/keyboard focus or while the popover is open. Keeping
@@ -2536,6 +2560,8 @@ export default function Sidebar() {
     [routeDraftThread, routeTarget],
   );
   const routeThreadKey = routeThreadRef ? scopedThreadKey(routeThreadRef) : null;
+  const routePairPartnerRef = useThreadPairPartner(routeThreadRef);
+  const routePairPartnerKey = routePairPartnerRef ? scopedThreadKey(routePairPartnerRef) : null;
   const routeTargetRef = useRef(routeTarget);
   routeTargetRef.current = routeTarget;
   // Post-settle navigation validates against the CURRENT route, not the one
@@ -4630,6 +4656,8 @@ export default function Sidebar() {
         const isPinned = thread.pinnedAt != null;
         // Presets resolve at menu-open time (same as the popover).
         const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
+        const currentThreadRef = routeThreadRef;
+        const sideBySide = readSideBySideMenuOption(threadRef, currentThreadRef);
         const threadProjectGroup =
           projectGroupsRef.current.find((project) =>
             project.memberProjectRefs.some(
@@ -4667,6 +4695,7 @@ export default function Sidebar() {
                 titleRegeneration: supportsTitleRegeneration,
               },
               snoozePresets,
+              sideBySide,
             }),
             position,
           ),
@@ -4682,6 +4711,10 @@ export default function Sidebar() {
           return;
         }
         switch (clicked.value) {
+          case "open-beside":
+          case "close-side-by-side":
+            if (sideBySide) runSideBySideMenuOption(sideBySide, threadRef, currentThreadRef);
+            return;
           case "filter-by-project":
             // This item is the only scope control here, so picking the
             // already-scoped project again is the way back to all projects.
@@ -5323,6 +5356,7 @@ export default function Sidebar() {
                             // rows resolve to null on their own.
                             wokeAt={threadWokeAt(thread, { now: snoozeNow })}
                             isActive={routeThreadKey === threadKey}
+                            isOnScreenBesideActive={routePairPartnerKey === threadKey}
                             openPullRequestsInRightPanel={routeThreadRef !== null}
                             jumpLabel={
                               showJumpHints ? (jumpLabelByKey.get(threadKey) ?? null) : null
