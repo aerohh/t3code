@@ -16,12 +16,14 @@ import { observeResize } from "../../lib/observeResize";
 /** One card owns its placement and folds content only when that content cannot fit. */
 export function ThreadDetailsCard({
   threadRef,
+  expanded,
   anchor,
   handle,
   onPresentationChange,
   children,
 }: {
   threadRef: ScopedThreadRef;
+  expanded: boolean;
   anchor: RefObject<Element | null>;
   handle: ReturnType<typeof PopoverCreateHandle>;
   onPresentationChange: (presentation: ThreadPanelPresentation) => void;
@@ -54,7 +56,9 @@ export function ThreadDetailsCard({
     selectThreadPanelOpen(state.threadPanelVisibilityByThreadKey, threadRef, "popover"),
   );
   const [contentElement, setContentElement] = useState<HTMLDivElement | null>(null);
-  const measurementKey = `${threadRef.environmentId}:${threadRef.threadId}:${preferredPlacement?.width ?? "popup"}`;
+  // Expanding adds rows, so each state keeps its own heights. Sharing them would leave
+  // the larger expanded height in place after collapsing and keep the card folded.
+  const measurementKey = `${threadRef.environmentId}:${threadRef.threadId}:${preferredPlacement?.width ?? "popup"}:${expanded ? "expanded" : "collapsed"}`;
   const [measurements, setMeasurements] = useState({
     key: measurementKey,
     heights: { full: 0, compact: 0 },
