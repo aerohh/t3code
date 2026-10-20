@@ -1095,6 +1095,8 @@ export interface DesktopBridge {
   /** Older builds lack this; fall back to VS Code only. */
   probeRemoteEditors?: () => Promise<readonly EditorId[]>;
   pasteAsText?: () => Promise<void>;
+  /** Optional while older desktop shells can host a newer web client. */
+  setWindowMinimumContentWidth?: (minContentWidth: number | null) => Promise<void>;
   onMenuAction: (listener: (action: string) => void) => () => void;
   onSnapShotEvent?: (listener: (event: DesktopSnapShotEvent) => void) => () => void;
   onQuitShortcut?: (listener: (event: QuitShortcutHintEvent) => void) => () => void;

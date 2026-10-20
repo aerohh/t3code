@@ -5,6 +5,7 @@ import {
   ArchiveIcon,
   ArrowUpDownIcon,
   ChevronRightIcon,
+  Columns2Icon,
   FolderPlusIcon,
   Globe2Icon,
   SearchIcon,
@@ -94,6 +95,14 @@ import { releaseProjectDraftUploads } from "../lib/composerDraftUploads";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isMacPlatform } from "../lib/utils";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
+import { buildSideBySideMenuItem } from "./threadActionMenu.logic";
+import {
+  findThreadPair,
+  readSideBySideMenuOption,
+  runSideBySideMenuOption,
+  useThreadPairPartner,
+  useThreadPairStore,
+} from "../threadPairStore";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import {
   readThreadShell,
@@ -338,6 +347,8 @@ interface SidebarThreadRowProps {
   thread: SidebarThreadSummary;
   orderedProjectThreadKeys: readonly string[];
   isActive: boolean;
+  /** Shown beside the active chat as the other half of its pair. */
+  isOnScreenBesideActive: boolean;
   openPullRequestsInRightPanel: boolean;
   jumpLabel: string | null;
   appSettingsConfirmThreadArchive: boolean;
@@ -398,6 +409,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const {
     orderedProjectThreadKeys,
     isActive,
+    isOnScreenBesideActive,
     openPullRequestsInRightPanel,
     jumpLabel,
     appSettingsConfirmThreadArchive,
@@ -431,6 +443,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const localLastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
   const lastVisitedAt = resolveThreadLastVisitedAt(thread.lastVisitedAt, localLastVisitedAt);
   const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
+  const isPaired = useThreadPairStore(
+    (state) =>
+      findThreadPair(state.pairs, scopeThreadRef(thread.environmentId, thread.id)) !== null,
+  );
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: thread.environmentId,
     threadId: thread.id,
@@ -689,7 +705,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             ? "bg-sidebar-row-active font-medium text-sidebar-foreground hover:bg-sidebar-row-active"
             : isSelected
               ? "bg-sidebar-row-selected text-sidebar-foreground hover:bg-sidebar-row-active"
-              : "text-sidebar-muted-foreground/80 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+              : isOnScreenBesideActive
+                ? "bg-sidebar-row-active/50 text-sidebar-foreground hover:bg-sidebar-row-active"
+                : "text-sidebar-muted-foreground/80 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
           isFileDragOver && "ring-1 ring-inset ring-primary/70",
         )}
         onClick={handleRowClick}
@@ -764,6 +782,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               <TooltipPopup side="top">{thread.title}</TooltipPopup>
             </Tooltip>
           )}
+          {isPaired ? (
+            <Columns2Icon
+              aria-label="Side by side"
+              role="img"
+              className="size-3 shrink-0 text-sidebar-muted-foreground"
+            />
+          ) : null}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           {canOperatePreview && discoveredPorts.length > 0 && (
@@ -995,6 +1020,10 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     expandThreadListForProject,
     collapseThreadListForProject,
   } = props;
+  const activePairPartnerRef = useThreadPairPartner(
+    activeRouteThreadKey ? parseScopedThreadKey(activeRouteThreadKey) : null,
+  );
+  const activePairPartnerKey = activePairPartnerRef ? scopedThreadKey(activePairPartnerRef) : null;
   const showMoreButtonRender = <button type="button" />;
   const showLessButtonRender = <button type="button" />;
 
@@ -1022,6 +1051,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
               thread={thread}
               orderedProjectThreadKeys={orderedProjectThreadKeys}
               isActive={activeRouteThreadKey === threadKey}
+              isOnScreenBesideActive={activePairPartnerKey === threadKey}
               openPullRequestsInRightPanel={openPullRequestsInRightPanel}
               jumpLabel={threadJumpLabelByKey.get(threadKey) ?? null}
               appSettingsConfirmThreadArchive={appSettingsConfirmThreadArchive}
@@ -2171,11 +2201,17 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         thread.environmentId,
         AuthOrchestrationOperateScope,
       );
+      const currentThreadRef = activeRouteThreadKey
+        ? parseScopedThreadKey(activeRouteThreadKey)
+        : null;
+      const sideBySide = readSideBySideMenuOption(threadRef, currentThreadRef);
+      const sideBySideItem = buildSideBySideMenuItem(sideBySide);
       const clicked = await api.contextMenu.show(
         [
           ...(thread.branch
             ? [{ id: "new-thread-on-branch", label: `New thread on ${thread.branch}` }]
             : []),
+          ...(sideBySideItem ? [sideBySideItem] : []),
           { id: "rename", label: "Rename thread", disabled: !canOperateThread },
           ...(appAtomRegistry.get(canShareWithGuestAtom(thread.environmentId))
             ? [{ id: "share-guest", label: "Share with guest" }]
@@ -2194,6 +2230,11 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         ],
         position,
       );
+
+      if (clicked === "open-beside" || clicked === "close-side-by-side") {
+        if (sideBySide) runSideBySideMenuOption(sideBySide, threadRef, currentThreadRef);
+        return;
+      }
 
       if (clicked === "project-settings") {
         if (isMobile) setOpenMobile(false);

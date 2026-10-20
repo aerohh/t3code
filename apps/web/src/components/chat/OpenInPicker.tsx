@@ -8,6 +8,7 @@ import {
 } from "@t3tools/contracts";
 import { memo, use, useRef } from "react";
 import { BackgroundThreadContext } from "./backgroundThread";
+import { useThreadPane } from "../../threadPaneContext";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { OPEN_FAVORITE_EDITOR_ATTRIBUTE } from "./OpenInPickerShortcut";
 import { usePreferredEditor } from "../../editorPreferences";
@@ -282,6 +283,7 @@ export const OpenInPicker = memo(function OpenInPicker({
   );
 
   const backgroundThread = use(BackgroundThreadContext);
+  const { isActivePane } = useThreadPane();
   const options = resolveOpenInOptions(navigator.platform, effectiveEditors);
   const primaryOption = options.find(({ value }) => value === preferredEditor) ?? null;
   const primaryLabel = isPanel ? `Open in ${primaryOption?.label ?? "editor"}` : "Open";
@@ -371,7 +373,9 @@ export const OpenInPicker = memo(function OpenInPicker({
         part="primary"
         panel={isPanel}
         disabled={!preferredEditor || !openInCwd || !canOpenEditor}
-        {...(enableShortcut && !backgroundThread ? { [OPEN_FAVORITE_EDITOR_ATTRIBUTE]: "" } : {})}
+        {...(enableShortcut && !backgroundThread && isActivePane
+          ? { [OPEN_FAVORITE_EDITOR_ATTRIBUTE]: "" }
+          : {})}
         onClick={() => {
           if (!preferredEditor) return;
           const label = editorLabelForPlatform(preferredEditor, navigator.platform);

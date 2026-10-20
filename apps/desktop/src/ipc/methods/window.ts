@@ -36,6 +36,7 @@ import * as ElectronMenu from "../../electron/ElectronMenu.ts";
 import * as ElectronShell from "../../electron/ElectronShell.ts";
 import * as ElectronTheme from "../../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
+import * as DesktopWindow from "../../window/DesktopWindow.ts";
 import * as Electron from "electron";
 import * as MacPermissions from "../../permissions/MacPermissions.ts";
 import { safariPermissionCheck } from "../../preview/BrowserImport/SafariPermission.ts";
@@ -373,6 +374,50 @@ export const revealWindow = DesktopIpc.makeIpcMethod({
     }
     yield* electronWindow.reveal(window.value);
   }),
+});
+
+/** Side-by-side chats need a wider window; `null` restores the default minimum. */
+export const setWindowMinimumContentWidth = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.SET_WINDOW_MINIMUM_CONTENT_WIDTH_CHANNEL,
+  payload: Schema.NullOr(Schema.Finite),
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.window.setWindowMinimumContentWidth")(
+    function* (minContentWidth, event) {
+      const electronWindow = yield* ElectronWindow.ElectronWindow;
+      const window = yield* electronWindow.main;
+      if (
+        event === undefined ||
+        Option.isNone(window) ||
+        window.value.isDestroyed() ||
+        window.value.webContents.id !== event.sender.id
+      ) {
+        return;
+      }
+      const mainWindow = window.value;
+      if (minContentWidth === null) {
+        mainWindow.setMinimumSize(
+          DesktopWindow.MAIN_WINDOW_MIN_WIDTH,
+          DesktopWindow.MAIN_WINDOW_MIN_HEIGHT,
+        );
+        return;
+      }
+      // Fullscreen and maximized windows already span the screen, so the page closes a pair
+      // that still lacks room.
+      if (mainWindow.isFullScreen() || mainWindow.isMaximized()) return;
+      const bounds = mainWindow.getBounds();
+      const resolved = DesktopWindow.resolveWindowForMinimumContentWidth({
+        bounds,
+        frameWidth: bounds.width - mainWindow.getContentBounds().width,
+        // The page measures in CSS pixels; the window is sized in zoomed device-independent pixels.
+        minContentWidth: minContentWidth * mainWindow.webContents.getZoomFactor(),
+        workArea: Electron.screen.getDisplayMatching(bounds).workArea,
+      });
+      mainWindow.setMinimumSize(resolved.minWidth, DesktopWindow.MAIN_WINDOW_MIN_HEIGHT);
+      if (resolved.bounds.width !== bounds.width || resolved.bounds.x !== bounds.x) {
+        mainWindow.setBounds(resolved.bounds);
+      }
+    },
+  ),
 });
 
 const PICKED_THEME_FILE_MAX_BYTES = 256 * 1024;

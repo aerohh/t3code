@@ -13,6 +13,7 @@ import { Kbd } from "../ui/kbd";
 import { cn } from "~/lib/utils";
 import { ComposerBanner } from "./ComposerBanner";
 import ChatMarkdown from "../ChatMarkdown";
+import { useThreadPane } from "../../threadPaneContext";
 
 interface PendingUserInputPanelProps {
   pendingUserInputs: PendingUserInput[];
@@ -147,9 +148,11 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   const selectOptionFromShortcut = useEffectEvent(handleOptionSelection);
   const backgroundThread = use(BackgroundThreadContext);
 
+  const { isActivePane } = useThreadPane();
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes a document keydown listener for digit shortcuts while a question is answerable
   useEffect(() => {
-    if (!activeQuestion || responseDisabled || isCollapsed || backgroundThread) return;
+    if (!activeQuestion || responseDisabled || isCollapsed || backgroundThread || !isActivePane)
+      return;
     const handler = (event: globalThis.KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target;
@@ -173,7 +176,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [activeQuestion, backgroundThread, isCollapsed, responseDisabled]);
+  }, [activeQuestion, backgroundThread, isActivePane, isCollapsed, responseDisabled]);
 
   if (!activeQuestion) {
     return null;

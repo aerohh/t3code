@@ -53,17 +53,20 @@ interface ThreadFindTimeline {
   readonly navigate: () => void;
 }
 
-let attachedTimeline: ThreadFindTimeline | null = null;
+// Keyed by thread: side by side, two timelines are attached at once.
+const attachedTimelines = new Map<string, ThreadFindTimeline>();
 
 function timelineFor(threadKey: string): ThreadFindTimeline | null {
-  return attachedTimeline?.threadKey === threadKey ? attachedTimeline : null;
+  return attachedTimelines.get(threadKey) ?? null;
 }
 
 /** Attaches the timeline showing a thread; returns the detach. */
 export function attachThreadFindTimeline(timeline: ThreadFindTimeline): () => void {
-  attachedTimeline = timeline;
+  attachedTimelines.set(timeline.threadKey, timeline);
   return () => {
-    if (attachedTimeline === timeline) attachedTimeline = null;
+    if (attachedTimelines.get(timeline.threadKey) === timeline) {
+      attachedTimelines.delete(timeline.threadKey);
+    }
   };
 }
 

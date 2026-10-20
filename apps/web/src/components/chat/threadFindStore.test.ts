@@ -64,6 +64,24 @@ describe("thread find store", () => {
     detach();
   });
 
+  it("finds from the viewport of either side-by-side timeline", () => {
+    const { navigate, readPosition, timeline } = setup();
+    const detachLeft = attachThreadFindTimeline(timeline);
+    const otherNavigate = vi.fn();
+    const detachRight = attachThreadFindTimeline({
+      threadKey: "env-1:thread-2",
+      navigate: otherNavigate,
+      readPosition: vi.fn(() => undefined),
+    });
+    openThreadFind(threadKey);
+    setThreadFindQuery(threadKey, "needle");
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(otherNavigate).not.toHaveBeenCalled();
+    expect(readPosition).toHaveBeenLastCalledWith("needle");
+    detachRight();
+    detachLeft();
+  });
+
   it("keeps find over Settings and Usage, and closes it on any other route", () => {
     setup();
     openThreadFindOnQuery(threadKey, { query: "x" });

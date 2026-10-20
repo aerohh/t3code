@@ -136,6 +136,29 @@ function getInitialWindowBackgroundColor(shouldUseDarkColors: boolean): string {
 
 type DisplayBounds = Pick<Electron.Rectangle, "x" | "y" | "width" | "height">;
 
+export const MAIN_WINDOW_MIN_WIDTH = 840;
+export const MAIN_WINDOW_MIN_HEIGHT = 620;
+
+/**
+ * Widens the window so its content area reaches `minContentWidth`, staying inside the work area.
+ * Never shrinks the window. A work area narrower than required caps the width at the work area.
+ */
+export function resolveWindowForMinimumContentWidth(input: {
+  readonly bounds: DisplayBounds;
+  readonly frameWidth: number;
+  readonly minContentWidth: number;
+  readonly workArea: DisplayBounds;
+}): { readonly bounds: DisplayBounds; readonly minWidth: number } {
+  const { bounds, frameWidth, minContentWidth, workArea } = input;
+  const requiredWidth = Math.ceil(minContentWidth + frameWidth);
+  const width = Math.max(bounds.width, Math.min(requiredWidth, workArea.width));
+  const rightmostX = workArea.x + workArea.width - width;
+  return {
+    bounds: { ...bounds, width, x: Math.max(workArea.x, Math.min(bounds.x, rightmostX)) },
+    minWidth: Math.max(MAIN_WINDOW_MIN_WIDTH, Math.min(requiredWidth, workArea.width)),
+  };
+}
+
 function windowFitsWithinDisplay(
   windowBounds: DesktopAppSettings.DesktopWindowBounds,
   displayBounds: DisplayBounds,
@@ -373,8 +396,8 @@ export const make = Effect.gen(function* () {
     if (yield* Ref.get(desktopState.quitting)) return Option.none();
     const window = yield* electronWindow.create({
       ...initialBounds,
-      minWidth: 840,
-      minHeight: 620,
+      minWidth: MAIN_WINDOW_MIN_WIDTH,
+      minHeight: MAIN_WINDOW_MIN_HEIGHT,
       show: false,
       autoHideMenuBar: true,
       ...(environment.platform === "darwin" ? { disableAutoHideCursor: true } : {}),

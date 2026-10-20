@@ -29,6 +29,8 @@ import {
   threadNotificationTag,
   unlockNotificationAudio,
 } from "../threadNotifications";
+import { findThreadPair, useThreadPairStore } from "../threadPairStore";
+import { resolveThreadRouteTarget } from "../threadRoutes";
 import { resolveSidebarThreadStatus, type SidebarThreadStatus } from "./Sidebar.logic";
 import {
   createThreadNotificationGate,
@@ -48,6 +50,19 @@ interface WatchedEnvironment {
   unsubscribe: () => void;
   previous: Map<ThreadId, NotificationState>;
   readonly gate: ReturnType<typeof createThreadNotificationGate<ThreadId>>;
+}
+
+// The route's thread is on screen, and so is its pair partner beside it.
+function isThreadOnScreen(
+  active: { environmentId?: string; threadId?: string },
+  environmentId: EnvironmentId,
+  threadId: ThreadId,
+): boolean {
+  if (active.environmentId === environmentId && active.threadId === threadId) return true;
+  const routeTarget = resolveThreadRouteTarget(active);
+  if (routeTarget?.kind !== "server") return false;
+  const shownPair = findThreadPair(useThreadPairStore.getState().pairs, routeTarget.threadRef);
+  return shownPair !== null && findThreadPair([shownPair], { environmentId, threadId }) !== null;
 }
 
 /**
@@ -105,7 +120,7 @@ export function startThreadNotifications(
       inAppNotificationsEnabled &&
       document.visibilityState === "visible" &&
       document.hasFocus() &&
-      (active.environmentId !== environmentId || active.threadId !== thread.id)
+      !isThreadOnScreen(active, environmentId, thread.id)
     ) {
       const toastId = toastManager.add({
         type: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",

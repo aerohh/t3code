@@ -14,6 +14,7 @@ import type { ComposerHandleRef } from "../../composerHandleContext";
 export function usePasteToFocusComposer(
   activeThreadId: ThreadId | null,
   composerRef: ComposerHandleRef,
+  isActivePane: boolean,
 ) {
   const pasteAsTextShortcutUntilRef = useRef(0);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- attaches window keydown and paste capture listeners that route stray pastes into the composer
@@ -27,7 +28,7 @@ export function usePasteToFocusComposer(
       }
     };
     const handler = (event: ClipboardEvent) => {
-      if (!activeThreadId || isCommandPaletteOpen()) return;
+      if (!activeThreadId || !isActivePane || isCommandPaletteOpen()) return;
       if (getTerminalFocusOwner() !== null) return;
       if (composerRef.current?.isModelPickerOpen()) return;
       const text = pasteTextToFocusComposer(event);
@@ -50,5 +51,5 @@ export function usePasteToFocusComposer(
       window.removeEventListener("keydown", keyHandler, true);
       window.removeEventListener("paste", handler, true);
     };
-  }, [activeThreadId, composerRef]);
+  }, [activeThreadId, composerRef, isActivePane]);
 }

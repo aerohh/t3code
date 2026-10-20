@@ -26,6 +26,7 @@ import {
   usePromptStashStore,
 } from "../../promptStashStore";
 import { type PendingUserInput } from "../../session-logic";
+import { useThreadPane } from "../../threadPaneContext";
 import { type ReviewCommentContext } from "../../reviewCommentContext";
 import { collapseExpandedComposerCursor } from "../../composer-logic";
 import { compressImageForStash } from "../../lib/imageCompression";
@@ -686,6 +687,7 @@ export function useComposerStash(input: {
   // Capture phase while the composer is mounted, so Mod+S never reaches the browser's save
   // dialog even when a focused widget (the model picker search) stops the key.
   const backgroundThread = use(BackgroundThreadContext);
+  const { isActivePane } = useThreadPane();
   const readShortcutContext = useStableCallback(() => ({
     terminalOpen: Boolean(
       selectThreadTerminalUiState(
@@ -696,12 +698,12 @@ export function useComposerStash(input: {
   }));
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the capture-phase stash shortcut with the command registry while the composer is mounted
   useEffect(() => {
-    if (backgroundThread) return;
+    if (backgroundThread || !isActivePane) return;
     return registerCommands(
       { "composer.stash": handleStashShortcut },
       { capture: true, context: readShortcutContext },
     );
-  }, [backgroundThread, handleStashShortcut, readShortcutContext]);
+  }, [backgroundThread, handleStashShortcut, isActivePane, readShortcutContext]);
 
   return {
     stashQueue,
