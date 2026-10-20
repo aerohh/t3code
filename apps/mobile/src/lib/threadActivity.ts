@@ -1056,7 +1056,7 @@ export function failedFeedRunIds(
  * V1) folds its response like a run. `runlessWorkActive` keeps the latest
  * runless response open; V2 work must not reopen imported turns.
  */
-function deriveThreadFeedRunFolds(
+export function deriveThreadFeedRunFolds(
   feed: ReadonlyArray<ThreadFeedEntry>,
   latestRun: ThreadFeedLatestRun | null,
   runlessWorkActive: boolean,

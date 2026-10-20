@@ -250,6 +250,7 @@ export function useThreadFind({
   const findQuery = isOpen && remote.data?.match ? state.query : "";
   const timelineProps = useMemo(
     () => ({
+      closeFind: close,
       findOpen: isOpen,
       // Keep folds open between keystrokes while the next result loads.
       findExpanded,
@@ -258,7 +259,7 @@ export function useThreadFind({
       activeFindMatch: match,
       findNavigationId: navigationId,
     }),
-    [isOpen, findExpanded, findQuery, match, navigationId],
+    [isOpen, findExpanded, findQuery, match, navigationId, close],
   );
 
   return {

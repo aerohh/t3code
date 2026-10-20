@@ -391,3 +391,66 @@ describe("find result navigation", () => {
     expect(scrollToOffset).toHaveBeenCalledExactlyOnceWith({ offset: 366, animated: false });
   });
 });
+
+describe("bookmark navigation", () => {
+  it("loads an older message by identity and positions it without a text query", async () => {
+    const onLoadEarlier = vi.fn();
+    const onPositioned = vi.fn();
+    const historyControls = { hasMoreHistory: true, loading: false, error: null, onLoadEarlier };
+    await act(async () =>
+      root.render(
+        <Probe
+          {...props}
+          query=""
+          rowIndex={-1}
+          entries={[{ id: "newer" }]}
+          historyControls={historyControls}
+          onPositioned={onPositioned}
+        />,
+      ),
+    );
+    expect(onLoadEarlier).toHaveBeenCalledExactlyOnceWith("message");
+    expect(scrollToIndex).not.toHaveBeenCalled();
+    await act(async () =>
+      root.render(
+        <Probe
+          {...props}
+          query=""
+          rowIndex={0}
+          historyControls={historyControls}
+          onPositioned={onPositioned}
+        />,
+      ),
+    );
+    expect(scrollToIndex).toHaveBeenCalledExactlyOnceWith({
+      index: 0,
+      animated: false,
+      viewOffset: 96,
+    });
+    expect(onPositioned).toHaveBeenCalledOnce();
+  });
+
+  it("reports a missing message once all history is loaded", async () => {
+    const onLoadEarlier = vi.fn();
+    const onMissing = vi.fn();
+    const render = (hasMoreHistory: boolean) =>
+      act(async () =>
+        root.render(
+          <Probe
+            {...props}
+            query=""
+            rowIndex={-1}
+            entries={[{ id: "newer" }]}
+            historyControls={{ hasMoreHistory, loading: false, error: null, onLoadEarlier }}
+            onMissing={onMissing}
+          />,
+        ),
+      );
+    await render(true);
+    expect(onLoadEarlier).toHaveBeenCalledOnce();
+    expect(onMissing).not.toHaveBeenCalled();
+    await render(false);
+    expect(onMissing).toHaveBeenCalledOnce();
+    expect(scrollToIndex).not.toHaveBeenCalled();
+  });
+});

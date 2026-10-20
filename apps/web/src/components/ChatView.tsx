@@ -470,6 +470,7 @@ import {
   type PanelLayoutControlsProps,
   RightPanelMaximizeControl,
 } from "./chat/PanelLayoutControls";
+import { useThreadHasMessageBookmarks } from "./chat/MessageBookmarks";
 import { expandedImageKey, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { ThreadDetailsPanel, type ThreadDetailsPanelProps } from "./chat/ThreadDetailsPanel";
 import { SideChatBackdrop, SideChatCard, useSideChatCard } from "./chat/SideChatCard";
@@ -3121,6 +3122,10 @@ export default function ChatView(props: ChatViewProps) {
     ? (activeEnvironment?.serverConfig ?? null)
     : (primaryEnvironment?.serverConfig ?? null);
   const providerStatuses = serverConfig?.providers ?? EMPTY_PROVIDERS;
+  const messageBookmarksShown = useThreadHasMessageBookmarks(
+    activeThreadRef,
+    isServerThread && serverConfig?.messageBookmarks === true,
+  );
   const canStartOrShowSideChat =
     !inSideChatCard &&
     serverThread !== null &&
@@ -11132,6 +11137,7 @@ export default function ChatView(props: ChatViewProps) {
     onDeleteProjectScript: deleteProjectScriptStable,
   };
   const panelToggleControlProps = {
+    bookmarksThread: messageBookmarksShown ? activeThreadRef : null,
     terminalAvailable: activeProject !== null,
     terminalOpen: terminalUiState.terminalOpen,
     terminalShortcutLabel: shortcutLabelForCommand(keybindings, "terminal.toggle"),
@@ -11273,7 +11279,11 @@ export default function ChatView(props: ChatViewProps) {
                 aria-hidden
                 className={cn(
                   "pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] [-webkit-app-region:no-drag]",
-                  canStartOrShowSideChat ? "w-37" : "w-28",
+                  canStartOrShowSideChat && messageBookmarksShown
+                    ? "w-46"
+                    : canStartOrShowSideChat || messageBookmarksShown
+                      ? "w-37"
+                      : "w-28",
                 )}
               />
             ) : null}
@@ -11289,6 +11299,7 @@ export default function ChatView(props: ChatViewProps) {
               onOpenThread={onOpenRelatedThreadStable}
               rightPanelOpen={inlineRightPanelOwnsTitleBar}
               sideChatControlShown={canStartOrShowSideChat}
+              bookmarksControlShown={messageBookmarksShown}
               onNewThreadInProject={handleNewThreadInActiveProjectStable}
               {...(activeDraftLogicalProjectKey
                 ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }

@@ -225,6 +225,30 @@ export function summarizeT3ToolCalls(
     case "thread-merge":
       label = phrase("Requested", "request", quantity(selected.length, "context merge"));
       break;
+    case "bookmark-list":
+      label = phrase("Listed", "list", `message bookmarks ${times}`);
+      break;
+    case "bookmark-add":
+      label = phrase(
+        "Bookmarked",
+        "bookmark",
+        quantity(countEntities(entityIds("messageId")), "message"),
+      );
+      break;
+    case "bookmark-rename":
+      label = phrase(
+        "Renamed",
+        "rename",
+        quantity(countEntities(entityIds("messageId")), "bookmark"),
+      );
+      break;
+    case "bookmark-remove":
+      label = phrase(
+        "Removed",
+        "remove",
+        quantity(countEntities(entityIds("messageId")), "bookmark"),
+      );
+      break;
     case "thread-search":
       label = phrase("Searched", "search", `threads ${times}`);
       break;

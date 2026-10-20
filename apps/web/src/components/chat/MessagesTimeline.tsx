@@ -1,3 +1,7 @@
+import { appAtomRegistry } from "../../rpc/atomRegistry";
+import { MessageBookmarkButton } from "./MessageBookmarks";
+import { toastManager } from "../ui/toast";
+import { messageBookmarkNavigation } from "@t3tools/client-runtime/state/messageBookmarks";
 import { ThreadFindTimelineContext } from "./ThreadFindProvider";
 import { shouldPreserveAssistantLineBreaks } from "@t3tools/shared/markdownPipeline";
 import { MarkdownFindContext, useFindRevealRef } from "./markdownFindContext";
@@ -313,6 +317,7 @@ import {
 // ---------------------------------------------------------------------------
 
 interface TimelineRowSharedState {
+  bookmarksEnabled: boolean;
   citationRequest: AssistantCitationTarget | null;
   listRef: React.RefObject<LegendListRef | null>;
   timestampFormat: TimestampFormat;
@@ -546,6 +551,8 @@ interface MessagesTimelineProps {
   findQuery?: string;
   activeFindMatch?: ThreadFindMatch | null;
   findNavigationId?: number;
+  onBookmarkPositioned?: (() => void) | undefined;
+  onBookmarkMissing?: (() => void) | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -554,15 +561,49 @@ interface MessagesTimelineProps {
 
 export function MessagesTimeline(props: MessagesTimelineProps) {
   const find = useContext(ThreadFindTimelineContext);
+  const bookmarkRequest = useAtomValue(messageBookmarkNavigation(props.routeThreadKey));
+  const bookmark = bookmarkRequest?.bookmark;
+  const bookmarkMatch = useMemo(
+    () => (bookmark ? { entryId: bookmark.messageId, runId: bookmark.runId, occurrence: 0 } : null),
+    [bookmark],
+  );
   const findOpen = find?.findOpen ?? props.findOpen;
+  const onBookmarkPositioned = useCallback(() => {
+    const atom = messageBookmarkNavigation(props.routeThreadKey);
+    if (appAtomRegistry.get(atom) === bookmarkRequest) appAtomRegistry.set(atom, null);
+  }, [bookmarkRequest, props.routeThreadKey]);
+  const onBookmarkMissing = useCallback(() => {
+    const atom = messageBookmarkNavigation(props.routeThreadKey);
+    if (appAtomRegistry.get(atom) !== bookmarkRequest) return;
+    appAtomRegistry.set(atom, null);
+    toastManager.add({ type: "info", title: "This message is no longer in the chat" });
+  }, [bookmarkRequest, props.routeThreadKey]);
+  useEffect(
+    () => () => appAtomRegistry.set(messageBookmarkNavigation(props.routeThreadKey), null),
+    [props.routeThreadKey],
+  );
   const { onManualNavigation } = props;
+  const closeFind = find?.closeFind;
   useEffect(() => {
-    if (findOpen) onManualNavigation();
-  }, [findOpen, onManualNavigation]);
+    if (bookmarkRequest) closeFind?.();
+  }, [bookmarkRequest, closeFind]);
+  useEffect(() => {
+    if (findOpen || bookmarkRequest) onManualNavigation();
+  }, [findOpen, bookmarkRequest, onManualNavigation]);
   return (
     <ConversationTimeline
       {...props}
       {...find}
+      onBookmarkPositioned={onBookmarkPositioned}
+      onBookmarkMissing={onBookmarkMissing}
+      {...(!props.paintOnly && !findOpen && bookmarkMatch
+        ? {
+            activeFindMatch: bookmarkMatch,
+            findExpanded: true,
+            findQuery: "",
+            findNavigationId: bookmarkRequest?.requestId ?? 0,
+          }
+        : {})}
       liveFollowEnabled={!findOpen && props.liveFollowEnabled}
     />
   );
@@ -593,6 +634,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
   activeFindMatch = null,
   findNavigationId = 0,
   findPositionReaderRef,
+  onBookmarkPositioned,
+  onBookmarkMissing,
   latestRun,
   runningRunId = null,
   turnDiffSummaries,
@@ -1355,6 +1398,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       routeThreadKey,
       // Keep Markdown callbacks memoized during unrelated activity updates.
       threadRef: citationThreadRef,
+      bookmarksEnabled: !paintOnly,
       markdownCwd,
       resolvedTheme,
       workspaceRoot,
@@ -1393,6 +1437,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       timestampFormat,
       routeThreadKey,
       citationThreadRef,
+      paintOnly,
       markdownCwd,
       resolvedTheme,
       workspaceRoot,
@@ -1572,6 +1617,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
     query: normalizedFindQuery,
     match: activeFindMatch,
     navigationId: findNavigationId,
+    onPositioned: normalizedFindQuery.length === 0 ? onBookmarkPositioned : undefined,
+    onMissing: normalizedFindQuery.length === 0 ? onBookmarkMissing : undefined,
     rowIndex: activeFindMatch ? rows.findIndex((row) => row.id === activeFindMatch.entryId) : -1,
     listRef,
     contentInsetEndAdjustment,
@@ -2660,6 +2707,9 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             </TooltipPopup>
           </Tooltip>
           <div className="flex items-center gap-0.5">
+            {ctx.bookmarksEnabled && ctx.threadRef ? (
+              <MessageBookmarkButton thread={ctx.threadRef} messageId={row.message.id} />
+            ) : null}
             {typeof revertTurnCount === "number" && (
               <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
             )}
@@ -3022,6 +3072,9 @@ function AssistantMessageMeta({
         <span className="rounded-full border border-border/70 px-1.5 py-0.5 font-mono text-3xs text-muted-foreground">
           {projectedItem.item.status}
         </span>
+      ) : null}
+      {ctx.bookmarksEnabled && ctx.threadRef ? (
+        <MessageBookmarkButton thread={ctx.threadRef} messageId={message.id} />
       ) : null}
       <AssistantCopyButton
         message={message}

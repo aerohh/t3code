@@ -1,3 +1,6 @@
+import { useAtomValue } from "@effect/atom-react";
+import { messageBookmarkNavigation } from "@t3tools/client-runtime/state/messageBookmarks";
+import { MessageBookmarkButton } from "./MessageBookmarks";
 import * as Dialog from "../../components/ui/Dialog";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { ThreadMarkdownVideo, ThreadMediaVisibleContext } from "./ThreadMarkdownVideo";
@@ -172,6 +175,7 @@ import {
 import {
   failedFeedRunIds,
   deriveThreadFeedPresentation,
+  deriveThreadFeedRunFolds,
   threadFeedRunIsUnsettled,
   isContextCompactionActivityGroup,
   isContextHandoffActivityGroup,
@@ -278,7 +282,7 @@ export interface ThreadFeedHistoryControls {
   readonly hasMoreHistory: boolean;
   readonly loading: boolean;
   readonly error: string | null;
-  readonly onLoadEarlier: () => void;
+  readonly onLoadEarlier: (throughEntryId?: string) => void;
 }
 
 export interface ThreadFeedProps {
@@ -1360,6 +1364,12 @@ function renderFeedEntry(
                 <SymbolView name="pencil" size={14} tintColor={iconSubtleColor} />
               </Pressable>
             ) : null}
+            {!entry.pendingMessage || entry.acknowledged ? (
+              <MessageBookmarkButton
+                thread={scopeThreadRef(props.environmentId, props.threadId)}
+                messageId={message.id}
+              />
+            ) : null}
             {presentation.text.trim().length > 0 ? (
               <UserMessageCopyButton
                 text={presentation.text}
@@ -1440,6 +1450,10 @@ function renderFeedEntry(
         })}
         {showAssistantMeta ? (
           <View className="mt-1 flex-row items-center gap-1">
+            <MessageBookmarkButton
+              thread={scopeThreadRef(props.environmentId, props.threadId)}
+              messageId={message.id}
+            />
             <CopyTextButton
               accessibilityLabel="Copy message"
               text={renderedText}
@@ -1699,6 +1713,17 @@ function ThreadFeedPlaceholder(props: {
 }
 
 export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
+  const bookmarkRequest = useAtomValue(
+    messageBookmarkNavigation(scopedThreadKey(props.environmentId, props.threadId)),
+  );
+  useEffect(
+    () => () =>
+      appAtomRegistry.set(
+        messageBookmarkNavigation(scopedThreadKey(props.environmentId, props.threadId)),
+        null,
+      ),
+    [props.environmentId, props.threadId],
+  );
   const usesNativeWorkspaceColumns = useNativeWorkspaceColumnsSupported();
   const openPullRequest = useOpenPullRequest();
   const navigation = useNavigation();
@@ -1771,6 +1796,31 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     expandedTurnIds: new Set(),
   });
   const { copiedRowId, expandedWorkGroups, expandedWorkRows, expandedTurnIds } = interactionState;
+  const bookmarkFoldId = useMemo(() => {
+    if (!bookmarkRequest) return null;
+    const entry = props.feed.find(
+      (entry) =>
+        entry.type === "message" && entry.message.id === bookmarkRequest.bookmark.messageId,
+    );
+    if (!entry) return null;
+    const folds = deriveThreadFeedRunFolds(
+      props.feed,
+      props.latestRun,
+      props.runlessWorkActive ?? false,
+      failedFeedRunIds(props.feed, props.latestRun),
+    );
+    return [...folds.values()].find((fold) => fold.hiddenEntryIds.has(entry.id))?.runId ?? null;
+  }, [bookmarkRequest, props.feed, props.latestRun, props.runlessWorkActive]);
+  useEffect(() => {
+    if (!bookmarkRequest) return;
+    setEndFollow(false);
+    const runId = bookmarkFoldId ?? bookmarkRequest.bookmark.runId;
+    if (runId)
+      setInteractionState((current) => ({
+        ...current,
+        expandedTurnIds: new Set(current.expandedTurnIds).add(runId),
+      }));
+  }, [bookmarkRequest, bookmarkFoldId, setEndFollow]);
   const [expandedFile, setExpandedFile] = useState<FilePreviewSource | null>(null);
   const [expandedVideo, setExpandedVideo] = useState<VideoPreviewSource | null>(null);
   const fileShareSourceIdentifier = useId();
@@ -2222,6 +2272,72 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       props.latestRun,
     ],
   );
+  const bookmarkPositionedRef = useRef<typeof bookmarkRequest>(null);
+  const bookmarkPageRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      !bookmarkRequest ||
+      bookmarkPositionedRef.current === bookmarkRequest ||
+      viewportHeight === 0
+    )
+      return;
+    const messageId = bookmarkRequest.bookmark.messageId;
+    const index = presentedFeed.findIndex(
+      (entry) => entry.type === "message" && entry.message.id === messageId,
+    );
+    if (index < 0) {
+      const history = props.historyControls;
+      const inFeed = props.feed.some(
+        (entry) => entry.type === "message" && entry.message.id === messageId,
+      );
+      if (!inFeed && !history?.hasMoreHistory && !history?.loading && !history?.error) {
+        const atom = messageBookmarkNavigation(
+          scopedThreadKey(props.environmentId, props.threadId),
+        );
+        if (appAtomRegistry.get(atom) === bookmarkRequest) appAtomRegistry.set(atom, null);
+        Dialog.alert("This message is no longer in the chat");
+        return;
+      }
+      const pageKey = `${bookmarkRequest.requestId}:${props.feed[0]?.id ?? "first"}`;
+      if (
+        history?.hasMoreHistory &&
+        !history.loading &&
+        !history.error &&
+        bookmarkPageRef.current !== pageKey
+      ) {
+        bookmarkPageRef.current = pageKey;
+        history.onLoadEarlier(messageId);
+      }
+      return;
+    }
+    setEndFollow(false);
+    const frame = requestAnimationFrame(() => {
+      const list = props.listRef.current;
+      if (!list) return;
+      void list
+        .scrollToIndex({ index, animated: false, viewPosition: 0, viewOffset: anchorTopInset + 12 })
+        .then(() => {
+          bookmarkPositionedRef.current = bookmarkRequest;
+          const atom = messageBookmarkNavigation(
+            scopedThreadKey(props.environmentId, props.threadId),
+          );
+          if (appAtomRegistry.get(atom) === bookmarkRequest) appAtomRegistry.set(atom, null);
+        });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [
+    bookmarkRequest,
+    presentedFeed,
+    props.feed,
+    props.historyControls,
+    props.listRef,
+    props.environmentId,
+    props.threadId,
+    viewportHeight,
+    anchorTopInset,
+    setEndFollow,
+  ]);
+
   const setupAnchorIndex = presentedFeed.findIndex(
     (entry) => entry.type === "message" && entry.message.role === "user",
   );
@@ -2815,7 +2931,7 @@ function ThreadFeedLoadEarlierControl(props: ThreadFeedHistoryControls) {
           accessibilityRole="button"
           accessibilityLabel="Load earlier activity"
           disabled={props.loading}
-          onPress={props.onLoadEarlier}
+          onPress={() => props.onLoadEarlier()}
           className="min-h-9 flex-row items-center justify-center gap-2 rounded-full border border-border/60 bg-card/80 px-4 py-2 disabled:opacity-50"
         >
           {props.loading ? (

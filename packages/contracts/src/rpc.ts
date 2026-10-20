@@ -369,7 +369,20 @@ import {
 import { VcsError } from "./vcs.ts";
 import { Project, ProjectMutation, ProjectMutationError } from "./project.ts";
 
+import {
+  MessageBookmark,
+  MessageBookmarkError,
+  MessageBookmarksInput,
+  MessageBookmarkTarget,
+  MessageBookmarkRenameInput,
+} from "./messageBookmarks.ts";
+
 export const WS_METHODS = {
+  messageBookmarksSubscribe: "messageBookmarks.subscribe",
+  messageBookmarksList: "messageBookmarks.list",
+  messageBookmarksAdd: "messageBookmarks.add",
+  messageBookmarksRename: "messageBookmarks.rename",
+  messageBookmarksRemove: "messageBookmarks.remove",
   // Project registry methods
   projectsList: "projects.list",
   projectsAdd: "projects.add",
@@ -1654,6 +1667,33 @@ const WsOrchestrationV2SearchThreadStreamRpc = Rpc.make(
   },
 );
 
+const WsMessageBookmarksSubscribeRpc = Rpc.make(WS_METHODS.messageBookmarksSubscribe, {
+  payload: MessageBookmarksInput,
+  success: Schema.Array(MessageBookmark),
+  error: Schema.Union([MessageBookmarkError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+const WsMessageBookmarksListRpc = Rpc.make(WS_METHODS.messageBookmarksList, {
+  payload: MessageBookmarksInput,
+  success: Schema.Array(MessageBookmark),
+  error: Schema.Union([MessageBookmarkError, EnvironmentAuthorizationError]),
+});
+const WsMessageBookmarksAddRpc = Rpc.make(WS_METHODS.messageBookmarksAdd, {
+  payload: MessageBookmarkTarget,
+  success: Schema.Void,
+  error: Schema.Union([MessageBookmarkError, EnvironmentAuthorizationError]),
+});
+const WsMessageBookmarksRenameRpc = Rpc.make(WS_METHODS.messageBookmarksRename, {
+  payload: MessageBookmarkRenameInput,
+  success: Schema.Void,
+  error: Schema.Union([MessageBookmarkError, EnvironmentAuthorizationError]),
+});
+const WsMessageBookmarksRemoveRpc = Rpc.make(WS_METHODS.messageBookmarksRemove, {
+  payload: MessageBookmarkTarget,
+  success: Schema.Void,
+  error: Schema.Union([MessageBookmarkError, EnvironmentAuthorizationError]),
+});
+
 const WsOrchestrationV2SearchThreadsRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.searchThreads, {
   payload: OrchestrationSearchThreadsInput,
   success: OrchestrationSearchThreadsResult,
@@ -2061,6 +2101,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2GetTurnDiffRpc,
   WsOrchestrationV2GetFullThreadDiffRpc,
   WsOrchestrationV2SearchThreadsRpc,
+  WsMessageBookmarksListRpc,
+  WsMessageBookmarksSubscribeRpc,
+  WsMessageBookmarksAddRpc,
+  WsMessageBookmarksRenameRpc,
+  WsMessageBookmarksRemoveRpc,
   WsOrchestrationV2SearchThreadRpc,
   WsOrchestrationV2SearchThreadStreamRpc,
   WsOrchestrationV2GetArchivedShellSnapshotRpc,

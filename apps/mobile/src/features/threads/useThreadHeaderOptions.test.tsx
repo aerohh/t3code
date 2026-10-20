@@ -59,6 +59,16 @@ vi.mock("../settings/appearance/AppearancePreferencesProvider", () => ({
   useAppearancePreferences: () => ({ themeVariables: {} }),
 }));
 
+vi.mock("./MessageBookmarks", () => ({
+  MessageBookmarksPopup: () => null,
+  useThreadHasMessageBookmarks: () => true,
+}));
+vi.mock("../../state/server", async () => {
+  const { Atom } = await import("effect/reactivity");
+  const config = Atom.make({ messageBookmarks: true });
+  return { serverEnvironment: { configValueAtom: () => config } };
+});
+
 import { ThreadHeader } from "./ThreadHeader";
 
 const projectScripts: never[] = [];

@@ -161,6 +161,7 @@ import {
 } from "./orchestration-v2/WireProjection.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
+import * as MessageBookmarks from "./orchestration-v2/MessageBookmarks.ts";
 import * as OrchestrationEventStore from "./persistence/OrchestrationEventStore.ts";
 import { userFacingDispatchErrorMessage } from "./orchestration-v2/UserFacingErrors.ts";
 import * as ProviderRegistry from "./provider/ProviderRegistry.ts";
@@ -1221,6 +1222,7 @@ const layerWsRpc = (
       const projectService = yield* ProjectService.ProjectService;
       const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
       const threadSearch = yield* ThreadSearch.ThreadSearch;
+      const messageBookmarks = yield* MessageBookmarks.MessageBookmarks;
 
       const providerSessionsV2 = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const mcpAppRequests = yield* McpAppRequests.McpAppRequests;
@@ -1747,6 +1749,7 @@ const layerWsRpc = (
             threadResumeCompletionMarker: true,
             threadSnapshotPagination: true,
             threadFind: true,
+            messageBookmarks: true,
             threadFindProgressive: true,
             ...Option.match(scratchWorkspaceRoot, {
               onNone: () => ({}),
@@ -1925,6 +1928,11 @@ const layerWsRpc = (
           threadManagement
             .searchThreadStream(input)
             .pipe(Stream.mapError((cause) => new OrchestrationV2SearchThreadError({ cause }))),
+        [WS_METHODS.messageBookmarksSubscribe]: (input) => messageBookmarks.subscribe(input),
+        [WS_METHODS.messageBookmarksList]: (input) => messageBookmarks.list(input),
+        [WS_METHODS.messageBookmarksAdd]: (input) => messageBookmarks.add(input),
+        [WS_METHODS.messageBookmarksRename]: (input) => messageBookmarks.rename(input),
+        [WS_METHODS.messageBookmarksRemove]: (input) => messageBookmarks.remove(input),
         [ORCHESTRATION_V2_WS_METHODS.searchThreads]: (input) =>
           threadSearch.search(input).pipe(
             Effect.mapError(

@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./state/messageBookmarks": "./src/state/messageBookmarks.ts",
     "./composerThreadItems": {
       "types": "./src/composerThreadItems.ts",
       "default": "./src/composerThreadItems.ts"

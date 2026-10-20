@@ -1,3 +1,4 @@
+import { MessageBookmarksPopover } from "./MessageBookmarks";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
@@ -170,15 +171,12 @@ export function SideChatCard({
         <div className="flex shrink-0 items-center gap-3 border-b border-border/60 py-2 pr-2 pl-4">
           <span className="text-sm font-medium text-foreground">Side chat</span>
           {sideChatRef ? <SideChatReadFilesSwitch sideChatRef={sideChatRef} /> : null}
-          <Button
-            className="ml-auto"
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Close side chat"
-            onClick={onClose}
-          >
-            <XIcon className="size-3.5" />
-          </Button>
+          <div className="ml-auto flex items-center gap-1">
+            {sideChatRef ? <MessageBookmarksPopover thread={sideChatRef} /> : null}
+            <Button variant="ghost" size="icon-xs" aria-label="Close side chat" onClick={onClose}>
+              <XIcon className="size-3.5" />
+            </Button>
+          </div>
         </div>
         {parentNeedsAttention ? (
           <div className="flex shrink-0 items-center gap-3 border-b border-border/60 bg-warning/10 py-1.5 pr-2 pl-4 text-xs text-foreground">
