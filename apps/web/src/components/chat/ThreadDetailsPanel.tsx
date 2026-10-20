@@ -19,7 +19,7 @@ import ProjectScriptsControl, {
 import { memo, useState, type ComponentProps } from "react";
 import { ThreadDetailsCard } from "./ThreadDetailsCard";
 import { OpenInPicker } from "./OpenInPicker";
-import { ThreadDetailsSection } from "./ThreadDetailsSection";
+import { ThreadDetailsMoreRow, ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 import { ThreadServersPanel } from "./ThreadServersPanel";
@@ -32,9 +32,10 @@ import { ThreadDetailsItemsMenuItems } from "./ThreadDetailsItemsMenu";
 import { resolveThreadDetailsVisibility, THREAD_DETAILS_ITEMS } from "./threadDetailsItems";
 import { useClientSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import { SlidersHorizontalIcon } from "lucide-react";
+import { ChevronDownIcon, SlidersHorizontalIcon } from "lucide-react";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import {
+  THREAD_DETAILS_PANEL_CHEVRON_CLASS,
   THREAD_DETAILS_PANEL_ICON_CLASS,
   THREAD_DETAILS_PANEL_LABEL_CLASS,
 } from "./threadDetailsPanelStyles";
@@ -89,6 +90,10 @@ interface ThreadDetailsPanelProps extends Pick<
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   const visible = useClientSettings(resolveThreadDetailsVisibility);
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
+  // Keyed by thread so every thread opens collapsed, including after switching threads.
+  const threadKey = `${props.environmentId}:${props.threadId}`;
+  const [expandedThreadKey, setExpandedThreadKey] = useState<string | null>(null);
+  const expanded = expandedThreadKey === threadKey;
   const fileScripts = useT3ProjectFileScripts(
     props.environmentId,
     props.activeProjectScripts && visible.scripts ? props.gitCwd : null,
@@ -123,6 +128,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   return (
     <ThreadDetailsCard
       threadRef={{ environmentId: props.environmentId, threadId: props.threadId }}
+      expanded={expanded}
       anchor={props.anchor}
       handle={props.handle}
       contentKey={THREAD_DETAILS_ITEMS.filter((item) => visible[item.id])
@@ -158,7 +164,16 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
             props.gitCwd !== null &&
             props.activeProjectName !== undefined &&
             (visible.gitActions || (visible.changes && props.isGitRepo)),
+          servers: density === "full" && !props.draftId && visible.servers,
+          automations: density === "full" && !props.draftId && visible.automations,
         };
+        // Matches the rows wrapped in ThreadDetailsMoreRow below, so the arrow never opens nothing.
+        const hasMoreDetails =
+          show.environment ||
+          show.scripts ||
+          (show.git && visible.gitActions) ||
+          show.servers ||
+          show.automations;
         return (
           <>
             <div className="group/details-items">
@@ -171,17 +186,19 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 >
                   <div className="flex flex-col">
                     {show.environment ? (
-                      <BranchToolbar
-                        layout="panel"
-                        panelSection="workspace"
-                        availableEnvironments={props.availableEnvironments}
-                        {...(props.onEnvironmentChange
-                          ? { onEnvironmentChange: props.onEnvironmentChange }
-                          : {})}
-                        autoEnvironmentLabel={props.autoEnvironmentLabel}
-                        onAutoEnvironment={props.onAutoEnvironment}
-                        {...branchToolbarProps}
-                      />
+                      <ThreadDetailsMoreRow open={expanded}>
+                        <BranchToolbar
+                          layout="panel"
+                          panelSection="workspace"
+                          availableEnvironments={props.availableEnvironments}
+                          {...(props.onEnvironmentChange
+                            ? { onEnvironmentChange: props.onEnvironmentChange }
+                            : {})}
+                          autoEnvironmentLabel={props.autoEnvironmentLabel}
+                          onAutoEnvironment={props.onAutoEnvironment}
+                          {...branchToolbarProps}
+                        />
+                      </ThreadDetailsMoreRow>
                     ) : null}
 
                     {show.openIn ? (
@@ -196,17 +213,19 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                     ) : null}
 
                     {show.scripts && props.activeProjectScripts ? (
-                      <ProjectScriptsControl
-                        environmentId={props.environmentId}
-                        displayMode="panel"
-                        scripts={props.activeProjectScripts}
-                        fileScripts={fileScripts}
-                        preferredScriptId={props.preferredScriptId}
-                        onRunScript={props.onRunProjectScript}
-                        onAddScript={props.onAddProjectScript}
-                        onUpdateScript={props.onUpdateProjectScript}
-                        onDeleteScript={props.onDeleteProjectScript}
-                      />
+                      <ThreadDetailsMoreRow open={expanded}>
+                        <ProjectScriptsControl
+                          environmentId={props.environmentId}
+                          displayMode="panel"
+                          scripts={props.activeProjectScripts}
+                          fileScripts={fileScripts}
+                          preferredScriptId={props.preferredScriptId}
+                          onRunScript={props.onRunProjectScript}
+                          onAddScript={props.onAddProjectScript}
+                          onUpdateScript={props.onUpdateProjectScript}
+                          onDeleteScript={props.onDeleteProjectScript}
+                        />
+                      </ThreadDetailsMoreRow>
                     ) : null}
                   </div>
                 </ThreadDetailsSection>
@@ -228,6 +247,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                         compact={density !== "full"}
                         showActions={visible.gitActions}
                         showChanges={visible.changes}
+                        panelQuickActionOpen={expanded}
                         gitCwd={props.gitCwd}
                         activeThreadRef={activeThreadRef}
                         {...(props.draftId ? { draftId: props.draftId } : {})}
@@ -238,15 +258,42 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 </ThreadDetailsSection>
               ) : null}
 
-              {density === "full" && !props.draftId && visible.servers ? (
-                <ThreadServersPanel environmentId={props.environmentId} threadId={props.threadId} />
+              {hasMoreDetails ? (
+                <div className="flex justify-center px-2 pb-1">
+                  <ThreadDetailsControl
+                    part="icon"
+                    aria-label={expanded ? "Show fewer details" : "Show more details"}
+                    aria-expanded={expanded}
+                    onClick={() => setExpandedThreadKey(expanded ? null : threadKey)}
+                  >
+                    <ChevronDownIcon
+                      aria-hidden
+                      className={cn(
+                        THREAD_DETAILS_PANEL_CHEVRON_CLASS,
+                        "transition-transform motion-reduce:transition-none",
+                        expanded && "rotate-180",
+                      )}
+                    />
+                  </ThreadDetailsControl>
+                </div>
               ) : null}
 
-              {density === "full" && !props.draftId && visible.automations ? (
-                <ThreadAutomationsPanel
-                  environmentId={props.environmentId}
-                  threadId={props.threadId}
-                />
+              {show.servers ? (
+                <ThreadDetailsMoreRow open={expanded}>
+                  <ThreadServersPanel
+                    environmentId={props.environmentId}
+                    threadId={props.threadId}
+                  />
+                </ThreadDetailsMoreRow>
+              ) : null}
+
+              {show.automations ? (
+                <ThreadDetailsMoreRow open={expanded}>
+                  <ThreadAutomationsPanel
+                    environmentId={props.environmentId}
+                    threadId={props.threadId}
+                  />
+                </ThreadDetailsMoreRow>
               ) : null}
 
               {density === "full" && !props.draftId && visible.lineage ? (

@@ -68,6 +68,7 @@ function Card({
       >
         <ThreadDetailsCard
           threadRef={threadRef}
+          expanded={false}
           anchor={fixture.anchor}
           handle={fixture.handle}
           contentKey={String(rows)}

@@ -21,6 +21,7 @@ import { requestWorkspaceFocus } from "../../lib/workspaceFocus";
 
 export function ThreadDetailsCard({
   threadRef,
+  expanded,
   anchor,
   handle,
   contentKey,
@@ -28,6 +29,7 @@ export function ThreadDetailsCard({
   children,
 }: {
   threadRef: ScopedThreadRef;
+  expanded: boolean;
   anchor: RefObject<Element | null>;
   handle: ReturnType<typeof PopoverCreateHandle>;
   /** Changes when the set of rendered items changes, so cached heights are measured again. */
@@ -47,7 +49,9 @@ export function ThreadDetailsCard({
   const popoverOpen = useRightPanelStore((state) =>
     selectThreadPanelOpen(state.threadPanelVisibilityByThreadKey, threadRef, "popover"),
   );
-  const measurementKey = `${threadRef.environmentId}:${threadRef.threadId}:${preferredPlacement?.width ?? "popup"}:${contentKey}`;
+  // Expanding adds rows, so each state keeps its own heights. Sharing them would leave
+  // the larger expanded height in place after collapsing and keep the card folded.
+  const measurementKey = `${threadRef.environmentId}:${threadRef.threadId}:${preferredPlacement?.width ?? "popup"}:${contentKey}:${expanded ? "expanded" : "collapsed"}`;
   const [measurements, setMeasurements] = useState({
     key: measurementKey,
     heights: { full: 0, compact: 0 },
