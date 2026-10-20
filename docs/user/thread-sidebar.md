@@ -191,6 +191,24 @@ and copying a thread reference. A copied reference uses the thread's pull reques
 link when available, otherwise its thread ID. See [keybindings](./keybindings.md)
 for custom configuration.
 
+## Work on two threads side by side
+
+On web and desktop, you can show two threads from the same project next to each
+other. Right-click a thread in the sidebar and choose **Open beside** to pair it
+with the thread you are in, or press `mod+\` to pick one. **Open beside...** is
+also in the command palette and the thread's title menu.
+
+A pair stays together: selecting either thread shows both, and selecting any other
+thread shows it on its own. A thread belongs to one pair at a time, and pairs are
+remembered on this device only. Shortcuts and pasting act on the thread you last
+clicked in, and each thread's right panel opens over its own half.
+
+On desktop, the window widens to fit both threads and cannot be made narrower while
+they are shown. When the screen has no room for two threads, **Open beside** is
+unavailable, and an existing pair closes and keeps the thread you selected.
+Archiving, deleting, or moving either thread to another project also closes its
+pair. To close a pair yourself, choose **Close side by side** or press `mod+\` again.
+
 ## Inspect agent work
 
 **Limited** means the provider stopped on a usage or rate limit. The conversation

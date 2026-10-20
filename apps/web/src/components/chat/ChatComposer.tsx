@@ -1,3 +1,4 @@
+import { useThreadPane } from "../../threadPaneContext";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
@@ -4697,7 +4698,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     if (stashMenuClosesOn.prompt !== prompt || composerMenuOpen) setIsStashMenuOpen(false);
   }
 
+  const { isActivePane } = useThreadPane();
   useEffect(() => {
+    if (!isActivePane) return;
     const handler = (event: globalThis.KeyboardEvent) => {
       const command = resolveShortcutCommand(event, keybindings, {
         context: {
@@ -4727,6 +4730,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     return () => window.removeEventListener("keydown", handler, true);
   }, [
     activePendingProgress,
+    isActivePane,
     isComposerModelPickerOpen,
     keybindings,
     pendingUserInputs.length,

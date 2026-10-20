@@ -51,6 +51,7 @@ import {
   ChartNoAxesColumnIcon,
   CheckIcon,
   ChevronRightIcon,
+  Columns2Icon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderGit2Icon,
@@ -143,6 +144,12 @@ import {
 } from "../lib/utils";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { buildThreadRouteParams } from "../threadRoutes";
+import {
+  canPairThreads,
+  resolveSideBySideMenuOption,
+  threadPairFitsOnScreen,
+  useThreadPairStore,
+} from "../threadPairStore";
 import { useAvailableSettingsSearchItems } from "./settings/useAvailableSettingsSearchItems";
 import {
   applyWslEnvironmentConfiguration,
@@ -156,6 +163,7 @@ import {
   buildBrowseGroups,
   buildRootGroups,
   buildLinkedThreadActionItems,
+  buildThreadActionItems,
   buildCommandPaletteRows,
   enumerateCommandPaletteItems,
   findHighlightedCommandPaletteItem,
@@ -226,8 +234,11 @@ import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/com
 import { Button } from "./ui/button";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
-import type { ChatComposerHandle } from "./chat/ChatComposer";
+import {
+  ActiveComposerSlotContext,
+  createActiveComposerSlot,
+  useActiveComposerSlot,
+} from "../composerHandleContext";
 import { buildSidebarProjectPickerEntries } from "../sidebarProjectGrouping";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
@@ -251,7 +262,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     dispatch({ _tag: "OpenChildSearch", mode, context });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { theme, themeHalves, resolvedTheme, appearanceMode, setAppearanceMode } = useTheme();
-  const composerHandleRef = useRef<ChatComposerHandle | null>(null);
+  const [activeComposerSlot] = useState(createActiveComposerSlot);
   const routeTarget = useThreadRouteTarget();
   const routeThreadRef = routeTarget?.kind === "server" ? routeTarget.threadRef : null;
   const terminalOpen = useTerminalUiStateStore((state) =>
@@ -286,7 +297,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           terminalOpen,
           previewFocus: isPreviewFocused(),
           previewOpen,
-          modelPickerOpen: composerHandleRef.current?.isModelPickerOpen() ?? false,
+          modelPickerOpen: activeComposerSlot.getComposer()?.isModelPickerOpen() ?? false,
         },
       });
       if (command === "appearance.cycle") {
@@ -341,6 +352,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
+    activeComposerSlot,
     appearanceMode,
     keybindings,
     navigate,
@@ -359,6 +371,8 @@ export function CommandPalette({ children }: { children: ReactNode }) {
       onOpenCommandPalette((detail) => {
         if (detail.open === "new-thread-in") {
           openNewThreadIn();
+        } else if (detail.open === "open-beside") {
+          dispatch({ _tag: "OpenBeside" });
         } else if (detail.open === "add-project") {
           openAddProject();
         } else if (detail.query !== undefined) {
@@ -375,7 +389,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   );
 
   return (
-    <ComposerHandleContext value={composerHandleRef}>
+    <ActiveComposerSlotContext value={activeComposerSlot}>
       <CommandDialog
         open={state.open}
         onOpenChange={(open, eventDetails) => {
@@ -399,7 +413,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           clearOpenIntent={clearOpenIntent}
         />
       </CommandDialog>
-    </ComposerHandleContext>
+    </ActiveComposerSlotContext>
   );
 }
 
@@ -414,7 +428,7 @@ function CommandPaletteDialog(props: {
   readonly initialContext: CommandPaletteReturnContext | undefined;
   readonly clearOpenIntent: () => void;
 }) {
-  const composerHandleRef = useComposerHandleContext();
+  const activeComposerSlot = useActiveComposerSlot();
 
   return (
     <CommandDialogPopup
@@ -430,7 +444,7 @@ function CommandPaletteDialog(props: {
       data-palette-mode={props.mode}
       data-testid="command-palette"
       finalFocus={() => {
-        const composer = composerHandleRef?.current;
+        const composer = activeComposerSlot?.getComposer();
         if (!composer) return true;
         composer.focusAtEnd();
         return false;
@@ -569,6 +583,7 @@ function OpenCommandPaletteDialog(props: {
     }
   };
   const threads = useThreadShells();
+  const threadPairs = useThreadPairStore((store) => store.pairs);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const providersByEnvironment = useEnvironmentProviders();
   const { changeThemeItem, changeAppearanceItem, themeEditorItem } = useCommandPaletteThemeItems();
@@ -1233,6 +1248,71 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  const activeThreadSideBySide = activeThread
+    ? resolveSideBySideMenuOption({
+        pairs: threadPairs,
+        thread: activeThread,
+        currentThread: activeThread,
+        inScratchProject: projects.some(
+          (project) =>
+            project.environmentId === activeThread.environmentId &&
+            project.id === activeThread.projectId &&
+            project.isScratch === true,
+        ),
+        fitsOnScreen: threadPairFitsOnScreen(),
+      })
+    : null;
+  const openBesideItems =
+    activeThread && activeThreadSideBySide?.kind === "pick"
+      ? buildThreadActionItems({
+          threads: threads.filter(
+            (thread) =>
+              thread.lineage.relationshipToParent !== "subagent" &&
+              canPairThreads(threadPairs, activeThread, thread),
+          ),
+          projectTitleById,
+          sortOrder: clientSettings.sidebarThreadSortOrder,
+          icon: <Columns2Icon className={ITEM_ICON_CLASS} />,
+          runThread: async (thread) => {
+            useThreadPairStore
+              .getState()
+              .openPair(
+                scopeThreadRef(activeThread.environmentId, activeThread.id),
+                scopeThreadRef(thread.environmentId, thread.id),
+              );
+          },
+        })
+      : [];
+  if (activeThread && activeThreadSideBySide?.kind === "close") {
+    actionItems.push({
+      kind: "action",
+      value: "action:close-side-by-side",
+      searchTerms: ["close side by side", "split", "pair"],
+      title: "Close side by side",
+      icon: <Columns2Icon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "thread.sideBySide",
+      run: async () => {
+        useThreadPairStore
+          .getState()
+          .closePair(scopeThreadRef(activeThread.environmentId, activeThread.id));
+      },
+    });
+  } else if (activeThreadSideBySide?.kind === "pick") {
+    actionItems.push({
+      kind: "submenu",
+      value: "action:open-beside",
+      searchTerms: ["open beside", "side by side", "split", "pair", "two chats"],
+      title: "Open beside...",
+      ...(activeThreadSideBySide.blockedReason === null
+        ? {}
+        : { description: "Not enough room for two chats", disabled: true }),
+      icon: <Columns2Icon className={ITEM_ICON_CLASS} />,
+      addonIcon: <Columns2Icon className={ADDON_ICON_CLASS} />,
+      shortcutCommand: "thread.sideBySide",
+      groups: [{ value: "open-beside", label: "Open beside", items: openBesideItems }],
+    });
+  }
+
   if (activeThreadId && supportsThreadFind) {
     actionItems.push({
       kind: "action",
@@ -1488,6 +1568,12 @@ function OpenCommandPaletteDialog(props: {
         pushPaletteView({
           addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
           groups: [{ value: "projects", label: "Projects", items: projectThreadItems }],
+        });
+        return;
+      case "open-beside":
+        pushPaletteView({
+          addonIcon: <Columns2Icon className={ADDON_ICON_CLASS} />,
+          groups: [{ value: "open-beside", label: "Open beside", items: openBesideItems }],
         });
         return;
       case "change-theme":

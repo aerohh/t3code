@@ -472,6 +472,41 @@ describe("DesktopWindow", () => {
     );
   });
 
+  it("widens a narrow window for side-by-side chats without leaving the work area", () => {
+    const workArea = { x: 0, y: 25, width: 1470, height: 931 };
+    const resolve = (bounds: { x: number; y: number; width: number; height: number }) =>
+      DesktopWindow.resolveWindowForMinimumContentWidth({
+        bounds,
+        frameWidth: 0,
+        minContentWidth: 1217,
+        workArea,
+      });
+
+    assert.deepEqual(resolve({ x: 100, y: 50, width: 1000, height: 800 }), {
+      bounds: { x: 100, y: 50, width: 1217, height: 800 },
+      minWidth: 1217,
+    });
+    // Growing in place would cross the right edge, so the window shifts left.
+    assert.deepEqual(resolve({ x: 400, y: 50, width: 1000, height: 800 }).bounds, {
+      x: 253,
+      y: 50,
+      width: 1217,
+      height: 800,
+    });
+    // An already wide window is never shrunk.
+    assert.deepEqual(resolve({ x: 0, y: 50, width: 1400, height: 800 }).bounds.width, 1400);
+    // A work area narrower than required caps the window at the work area.
+    assert.deepEqual(
+      DesktopWindow.resolveWindowForMinimumContentWidth({
+        bounds: { x: 50, y: 50, width: 900, height: 700 },
+        frameWidth: 0,
+        minContentWidth: 1217,
+        workArea: { x: 0, y: 0, width: 1024, height: 768 },
+      }),
+      { bounds: { x: 0, y: 50, width: 1024, height: 700 }, minWidth: 1024 },
+    );
+  });
+
   it.effect(
     "opens and reopens the window without backend readiness when local execution is disabled",
     () =>

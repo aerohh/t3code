@@ -1,9 +1,10 @@
-import { PanelBottomIcon, PanelRightIcon, SquareMenuIcon } from "lucide-react";
+import { PanelBottomIcon, PanelRightIcon, SquareMenuIcon, XIcon } from "lucide-react";
 import { Maximize2, Minimize2 } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
 import { memo, type ReactElement } from "react";
 
 import type { ThreadPanelPresentation } from "../../rightPanelLayout";
+import { Button } from "../ui/button";
 import { PopoverCreateHandle, PopoverTrigger } from "../ui/popover";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -160,3 +161,24 @@ export const RightPanelMaximizeControl = memo(function RightPanelMaximizeControl
     </Tooltip>
   );
 });
+
+export function CloseThreadPairControl({ onClose }: { onClose: () => void }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            className="shrink-0 [-webkit-app-region:no-drag]"
+            onClick={onClose}
+            aria-label="Close side by side"
+            variant="ghost"
+            size="icon-sm"
+          >
+            <XIcon className="size-4" />
+          </Button>
+        }
+      />
+      <TooltipPopup side="bottom">Close side by side</TooltipPopup>
+    </Tooltip>
+  );
+}

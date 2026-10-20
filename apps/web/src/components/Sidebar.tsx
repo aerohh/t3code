@@ -82,6 +82,11 @@ import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../termina
 import { isMacPlatform } from "~/lib/utils";
 import { readLocalApi } from "../localApi";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
+import {
+  readSideBySideMenuOption,
+  runSideBySideMenuOption,
+  useThreadPairPartner,
+} from "../threadPairStore";
 import { selectProjectGroupingSettings } from "../logicalProject";
 import {
   projectGroupsSpanEnvironments,
@@ -899,6 +904,8 @@ export default function Sidebar() {
   const openAddProjectCommandPalette = () => openCommandPalette({ open: "add-project" });
   const routeThreadRef = resolveActiveThreadRouteRef(routeTarget, routeDraftThread);
   const routeThreadKey = routeThreadRef ? scopedThreadKey(routeThreadRef) : null;
+  const routePairPartnerRef = useThreadPairPartner(routeThreadRef);
+  const routePairPartnerKey = routePairPartnerRef ? scopedThreadKey(routePairPartnerRef) : null;
   const routeThreadKeyRef = useRef(routeThreadKey);
 
   // A selection made under one scope can hold threads the next scope hides.
@@ -2262,6 +2269,8 @@ export default function Sidebar() {
         const isSnoozed = snoozedThreadKeysRef.current.has(threadKey);
         const isPinned = thread.pinnedAt != null;
         const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
+        const currentThreadRef = routeThreadRef;
+        const sideBySide = readSideBySideMenuOption(threadRef, currentThreadRef);
         const threadProjectGroup =
           projectGroupsRef.current.find((project) =>
             project.memberProjectRefs.some(
@@ -2299,6 +2308,7 @@ export default function Sidebar() {
                 titleRegeneration: supportsTitleRegeneration,
               },
               snoozePresets,
+              sideBySide,
             }),
             position,
           ),
@@ -2314,6 +2324,10 @@ export default function Sidebar() {
           return;
         }
         switch (clicked.value) {
+          case "open-beside":
+          case "close-side-by-side":
+            if (sideBySide) runSideBySideMenuOption(sideBySide, threadRef, currentThreadRef);
+            return;
           case "filter-by-project":
             if (threadProjectGroup) {
               setProjectScopeKey(
@@ -2903,6 +2917,7 @@ export default function Sidebar() {
                             wokeAt={threadWokeAt(thread, { now: snoozeNow })}
                             isActive={routeRowThreadKey === threadKey}
                             isRouteThread={routeThreadKey === threadKey}
+                            isOnScreenBesideActive={routePairPartnerKey === threadKey}
                             openPullRequestsInRightPanel={routeThreadRef !== null}
                             jumpLabel={
                               showJumpHints ? (jumpLabelByKey.get(threadKey) ?? null) : null

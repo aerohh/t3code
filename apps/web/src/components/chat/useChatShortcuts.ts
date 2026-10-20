@@ -84,6 +84,7 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
       const current = latest.current;
       if (
         event.key !== "Escape" ||
+        !current.enabled ||
         !current.threadFindActive ||
         event.defaultPrevented ||
         event.isComposing ||

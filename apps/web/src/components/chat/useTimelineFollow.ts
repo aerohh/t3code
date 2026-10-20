@@ -59,6 +59,7 @@ interface TimelineFollowInput {
   readonly timelineEntries: ReadonlyArray<TimelineEntry>;
   readonly timelineAnchorMessageId: MessageId | null;
   readonly setTimelineAnchor: Dispatch<SetStateAction<TimelineAnchor>>;
+  readonly isActivePane: boolean;
 }
 
 /**
@@ -83,7 +84,10 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     timelineEntries,
     timelineAnchorMessageId,
     setTimelineAnchor,
+    isActivePane,
   } = input;
+  // Keys aimed at the page body belong to the active pane of a pair, not to both timelines.
+  const readIsActivePane = useEffectEvent(() => isActivePane);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const isAtEndRef = useRef(true);
   const isTimelineAtLogicalEnd = () =>
@@ -356,8 +360,8 @@ export function useTimelineFollow(input: TimelineFollowInput) {
           if (
             !(event.target instanceof Node) ||
             (!scrollNode.contains(event.target) &&
-              event.target !== document.body &&
-              event.target !== document.documentElement) ||
+              (!readIsActivePane() ||
+                (event.target !== document.body && event.target !== document.documentElement))) ||
             event.defaultPrevented ||
             event.isComposing ||
             event.altKey ||
