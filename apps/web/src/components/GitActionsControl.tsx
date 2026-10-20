@@ -116,6 +116,7 @@ import {
   THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS,
   THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS,
 } from "./chat/threadDetailsPanelStyles";
+import { ThreadDetailsMoreRow } from "./chat/ThreadDetailsSection";
 import { getSourceControlPresentation, sourceControlIcon } from "~/sourceControlPresentation";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { formatDiffCount } from "@t3tools/client-runtime/diff-count";
@@ -129,6 +130,8 @@ interface GitActionsControlProps {
   onOpenPullRequest?: ((number: number) => void) | undefined;
   displayMode?: "toolbar" | "panel";
   compact?: boolean;
+  /** Panel only: the commit/push row stays tucked away until the details panel is expanded. */
+  panelQuickActionOpen?: boolean;
   onOpenChanges?: () => void;
 }
 
@@ -961,6 +964,7 @@ export default function GitActionsControl({
   draftId,
   displayMode = "toolbar",
   compact = false,
+  panelQuickActionOpen = true,
   onOpenChanges,
 }: GitActionsControlProps) {
   const isPanel = displayMode === "panel";
@@ -1624,6 +1628,143 @@ export default function GitActionsControl({
 
   if (!gitCwd) return null;
 
+  const quickActionGroup = (
+    <ActionGroup
+      role="group"
+      aria-label="Git actions"
+      {...(isPanel ? { ref: panelAnchorRef } : {})}
+      className={cn(
+        "shrink-0",
+        isPanel && THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS,
+        isPanel && gitActionProgress && "bg-black/[0.035] dark:bg-white/[0.055]",
+      )}
+    >
+      {gitActionProgress ? (
+        <ThreadDetailsControl
+          aria-label={
+            gitActionProgress.output
+              ? `${gitActionProgress.status} ${gitActionProgress.output}`
+              : gitActionProgress.status
+          }
+          part="primary"
+          panel={isPanel}
+          multiline
+          className={isPanel ? undefined : "max-w-72"}
+          disabled
+          size="xs"
+          variant={isPanel ? "ghost" : "outline"}
+        >
+          <GitActionProgressButtonContent isPanel={isPanel} progress={gitActionProgress} />
+        </ThreadDetailsControl>
+      ) : isPanel && visibleInlineSuccess ? (
+        <ThreadDetailsControl part="primary" multiline disabled size="xs" variant="ghost">
+          <GitActionSuccessButtonContent success={visibleInlineSuccess} />
+        </ThreadDetailsControl>
+      ) : quickActionDisabledReason ? (
+        <Popover>
+          <PopoverTrigger
+            openOnHover
+            render={
+              <ThreadDetailsControl
+                aria-disabled="true"
+                part="primary"
+                panel={isPanel}
+                size="xs"
+                variant={isPanel ? "ghost" : "outline"}
+              />
+            }
+          >
+            <GitQuickActionIcon
+              quickAction={quickAction}
+              SourceControlIcon={SourceControlIcon}
+              {...(isPanel ? { className: THREAD_DETAILS_PANEL_ICON_CLASS } : {})}
+            />
+            <span
+              className={cn(
+                "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5",
+                isPanel && cn("not-sr-only ml-0 truncate", THREAD_DETAILS_PANEL_LABEL_CLASS),
+              )}
+            >
+              {quickAction.label}
+            </span>
+          </PopoverTrigger>
+          <PopoverPopup tooltipStyle side="bottom" align="start">
+            {quickActionDisabledReason}
+          </PopoverPopup>
+        </Popover>
+      ) : (
+        <ThreadDetailsControl
+          variant={isPanel ? "ghost" : "outline"}
+          size="xs"
+          part="primary"
+          panel={isPanel}
+          disabled={!canWriteSourceControl || isGitActionRunning || quickAction.disabled}
+          onClick={runQuickAction}
+        >
+          <GitQuickActionIcon
+            quickAction={quickAction}
+            SourceControlIcon={SourceControlIcon}
+            {...(isPanel ? { className: THREAD_DETAILS_PANEL_ICON_CLASS } : {})}
+          />
+          <span
+            className={cn(
+              "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5",
+              isPanel && cn("not-sr-only ml-0 truncate", THREAD_DETAILS_PANEL_LABEL_CLASS),
+            )}
+          >
+            {quickAction.label}
+          </span>
+        </ThreadDetailsControl>
+      )}
+      {isPanel && gitActionProgress ? (
+        <GitActionElapsedTime
+          startedAtMs={gitActionProgress.startedAtMs}
+          className="flex h-8 shrink-0 items-center self-start pe-2.5 text-2xs font-normal tabular-nums text-muted-foreground"
+        />
+      ) : (
+        <>
+          {isPanel ? (
+            <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
+          ) : (
+            <GroupSeparator className="hidden @3xl/header-actions:block" />
+          )}
+          <Menu
+            onOpenChange={(open) => {
+              if (open) {
+                requestVcsStatusRefresh(refreshVcsStatus, activeEnvironmentId, gitCwd);
+              }
+            }}
+          >
+            <MenuTrigger
+              render={
+                <ThreadDetailsControl
+                  aria-label="Git action options"
+                  size={isPanel ? "sm" : "icon-xs"}
+                  variant={isPanel ? "ghost" : "outline"}
+                  part="secondary"
+                  panel={isPanel}
+                />
+              }
+              disabled={isGitActionRunning}
+            >
+              <ChevronDownIcon
+                aria-hidden="true"
+                className={isPanel ? THREAD_DETAILS_PANEL_CHEVRON_CLASS : "size-4"}
+              />
+            </MenuTrigger>
+            <MenuPopup
+              align="end"
+              {...(isPanel ? { anchor: panelAnchorRef } : {})}
+              className={isPanel ? "w-(--anchor-width)" : "w-full"}
+            >
+              {gitItems}
+            </MenuPopup>
+          </Menu>
+        </>
+      )}
+    </ActionGroup>
+  );
+
   return (
     <>
       {presentation === "menu" ? (
@@ -1686,141 +1827,10 @@ export default function GitActionsControl({
             {initAction.isPending ? "Initializing..." : "Initialize Git"}
           </span>
         </ThreadDetailsControl>
-      ) : compact && !gitActionProgress && !visibleInlineSuccess ? null : (
-        <ActionGroup
-          role="group"
-          aria-label="Git actions"
-          {...(isPanel ? { ref: panelAnchorRef } : {})}
-          className={cn(
-            "shrink-0",
-            isPanel && THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS,
-            isPanel && gitActionProgress && "bg-black/[0.035] dark:bg-white/[0.055]",
-          )}
-        >
-          {gitActionProgress ? (
-            <ThreadDetailsControl
-              aria-label={
-                gitActionProgress.output
-                  ? `${gitActionProgress.status} ${gitActionProgress.output}`
-                  : gitActionProgress.status
-              }
-              part="primary"
-              panel={isPanel}
-              multiline
-              className={isPanel ? undefined : "max-w-72"}
-              disabled
-              size="xs"
-              variant={isPanel ? "ghost" : "outline"}
-            >
-              <GitActionProgressButtonContent isPanel={isPanel} progress={gitActionProgress} />
-            </ThreadDetailsControl>
-          ) : isPanel && visibleInlineSuccess ? (
-            <ThreadDetailsControl part="primary" multiline disabled size="xs" variant="ghost">
-              <GitActionSuccessButtonContent success={visibleInlineSuccess} />
-            </ThreadDetailsControl>
-          ) : quickActionDisabledReason ? (
-            <Popover>
-              <PopoverTrigger
-                openOnHover
-                render={
-                  <ThreadDetailsControl
-                    aria-disabled="true"
-                    part="primary"
-                    panel={isPanel}
-                    size="xs"
-                    variant={isPanel ? "ghost" : "outline"}
-                  />
-                }
-              >
-                <GitQuickActionIcon
-                  quickAction={quickAction}
-                  SourceControlIcon={SourceControlIcon}
-                  {...(isPanel ? { className: THREAD_DETAILS_PANEL_ICON_CLASS } : {})}
-                />
-                <span
-                  className={cn(
-                    "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5",
-                    isPanel && cn("not-sr-only ml-0 truncate", THREAD_DETAILS_PANEL_LABEL_CLASS),
-                  )}
-                >
-                  {quickAction.label}
-                </span>
-              </PopoverTrigger>
-              <PopoverPopup tooltipStyle side="bottom" align="start">
-                {quickActionDisabledReason}
-              </PopoverPopup>
-            </Popover>
-          ) : (
-            <ThreadDetailsControl
-              variant={isPanel ? "ghost" : "outline"}
-              size="xs"
-              part="primary"
-              panel={isPanel}
-              disabled={!canWriteSourceControl || isGitActionRunning || quickAction.disabled}
-              onClick={runQuickAction}
-            >
-              <GitQuickActionIcon
-                quickAction={quickAction}
-                SourceControlIcon={SourceControlIcon}
-                {...(isPanel ? { className: THREAD_DETAILS_PANEL_ICON_CLASS } : {})}
-              />
-              <span
-                className={cn(
-                  "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5",
-                  isPanel && cn("not-sr-only ml-0 truncate", THREAD_DETAILS_PANEL_LABEL_CLASS),
-                )}
-              >
-                {quickAction.label}
-              </span>
-            </ThreadDetailsControl>
-          )}
-          {isPanel && gitActionProgress ? (
-            <GitActionElapsedTime
-              startedAtMs={gitActionProgress.startedAtMs}
-              className="flex h-8 shrink-0 items-center self-start pe-2.5 text-2xs font-normal tabular-nums text-muted-foreground"
-            />
-          ) : (
-            <>
-              {isPanel ? (
-                <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
-              ) : (
-                <GroupSeparator className="hidden @3xl/header-actions:block" />
-              )}
-              <Menu
-                onOpenChange={(open) => {
-                  if (open) {
-                    requestVcsStatusRefresh(refreshVcsStatus, activeEnvironmentId, gitCwd);
-                  }
-                }}
-              >
-                <MenuTrigger
-                  render={
-                    <ThreadDetailsControl
-                      aria-label="Git action options"
-                      size={isPanel ? "sm" : "icon-xs"}
-                      variant={isPanel ? "ghost" : "outline"}
-                      part="secondary"
-                      panel={isPanel}
-                    />
-                  }
-                  disabled={isGitActionRunning}
-                >
-                  <ChevronDownIcon
-                    aria-hidden="true"
-                    className={isPanel ? THREAD_DETAILS_PANEL_CHEVRON_CLASS : "size-4"}
-                  />
-                </MenuTrigger>
-                <MenuPopup
-                  align="end"
-                  {...(isPanel ? { anchor: panelAnchorRef } : {})}
-                  className={isPanel ? "w-(--anchor-width)" : "w-full"}
-                >
-                  {gitItems}
-                </MenuPopup>
-              </Menu>
-            </>
-          )}
-        </ActionGroup>
+      ) : compact && !gitActionProgress && !visibleInlineSuccess ? null : isPanel ? (
+        <ThreadDetailsMoreRow open={panelQuickActionOpen}>{quickActionGroup}</ThreadDetailsMoreRow>
+      ) : (
+        quickActionGroup
       )}
 
       {isPanel && isRepo ? (

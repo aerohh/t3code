@@ -16,10 +16,14 @@ import ProjectScriptsControl, {
   type NewProjectScriptInput,
   type ProjectScriptActionResult,
 } from "../ProjectScriptsControl";
-import { memo, type ComponentProps } from "react";
+import { ChevronDownIcon } from "lucide-react";
+import { memo, useState, type ComponentProps } from "react";
+import { cn } from "../../lib/utils";
 import { ThreadDetailsCard } from "./ThreadDetailsCard";
+import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import { OpenInPicker } from "./OpenInPicker";
-import { ThreadDetailsSection } from "./ThreadDetailsSection";
+import { ThreadDetailsMoreRow, ThreadDetailsSection } from "./ThreadDetailsSection";
+import { THREAD_DETAILS_PANEL_CHEVRON_CLASS } from "./threadDetailsPanelStyles";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 
@@ -74,6 +78,13 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
     props.activeProjectScripts ? props.gitCwd : null,
   );
   const activeThreadRef = { environmentId: props.environmentId, threadId: props.threadId };
+  // Keyed by thread so every thread opens collapsed, including after switching threads.
+  const threadKey = `${props.environmentId}:${props.threadId}`;
+  const [expandedThreadKey, setExpandedThreadKey] = useState<string | null>(null);
+  const expanded = expandedThreadKey === threadKey;
+  // Matches the rows wrapped in ThreadDetailsMoreRow below, so the arrow never opens nothing.
+  const hasMoreDetails = (density: "full" | "compact" | "essential") =>
+    density === "full" || props.activeProjectScripts !== undefined;
   const branchToolbarProps = {
     showGitControls: props.isGitRepo,
     environmentId: props.environmentId,
@@ -103,6 +114,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   return (
     <ThreadDetailsCard
       threadRef={{ environmentId: props.environmentId, threadId: props.threadId }}
+      expanded={expanded}
       anchor={props.anchor}
       handle={props.handle}
       onPresentationChange={props.onPresentationChange}
@@ -117,17 +129,19 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
           >
             <div className="flex flex-col">
               {density === "full" ? (
-                <BranchToolbar
-                  layout="panel"
-                  panelSection="workspace"
-                  availableEnvironments={props.availableEnvironments}
-                  {...(props.onEnvironmentChange
-                    ? { onEnvironmentChange: props.onEnvironmentChange }
-                    : {})}
-                  autoEnvironmentLabel={props.autoEnvironmentLabel}
-                  onAutoEnvironment={props.onAutoEnvironment}
-                  {...branchToolbarProps}
-                />
+                <ThreadDetailsMoreRow open={expanded}>
+                  <BranchToolbar
+                    layout="panel"
+                    panelSection="workspace"
+                    availableEnvironments={props.availableEnvironments}
+                    {...(props.onEnvironmentChange
+                      ? { onEnvironmentChange: props.onEnvironmentChange }
+                      : {})}
+                    autoEnvironmentLabel={props.autoEnvironmentLabel}
+                    onAutoEnvironment={props.onAutoEnvironment}
+                    {...branchToolbarProps}
+                  />
+                </ThreadDetailsMoreRow>
               ) : null}
 
               {density !== "essential" && props.showOpenInPicker ? (
@@ -142,17 +156,19 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               ) : null}
 
               {props.activeProjectScripts ? (
-                <ProjectScriptsControl
-                  environmentId={props.environmentId}
-                  displayMode="panel"
-                  scripts={props.activeProjectScripts}
-                  fileScripts={fileScripts}
-                  preferredScriptId={props.preferredScriptId}
-                  onRunScript={props.onRunProjectScript}
-                  onAddScript={props.onAddProjectScript}
-                  onUpdateScript={props.onUpdateProjectScript}
-                  onDeleteScript={props.onDeleteProjectScript}
-                />
+                <ThreadDetailsMoreRow open={expanded}>
+                  <ProjectScriptsControl
+                    environmentId={props.environmentId}
+                    displayMode="panel"
+                    scripts={props.activeProjectScripts}
+                    fileScripts={fileScripts}
+                    preferredScriptId={props.preferredScriptId}
+                    onRunScript={props.onRunProjectScript}
+                    onAddScript={props.onAddProjectScript}
+                    onUpdateScript={props.onUpdateProjectScript}
+                    onDeleteScript={props.onDeleteProjectScript}
+                  />
+                </ThreadDetailsMoreRow>
               ) : null}
             </div>
           </ThreadDetailsSection>
@@ -172,6 +188,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                   <GitActionsControl
                     displayMode="panel"
                     compact={density !== "full"}
+                    panelQuickActionOpen={expanded}
                     gitCwd={props.gitCwd}
                     activeThreadRef={activeThreadRef}
                     {...(props.draftId ? { draftId: props.draftId } : {})}
@@ -182,8 +199,33 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
             </ThreadDetailsSection>
           ) : null}
 
+          {hasMoreDetails(density) ? (
+            <div className="flex justify-center px-2 pb-1">
+              <ThreadDetailsControl
+                part="icon"
+                aria-label={expanded ? "Show fewer details" : "Show more details"}
+                aria-expanded={expanded}
+                onClick={() => setExpandedThreadKey(expanded ? null : threadKey)}
+              >
+                <ChevronDownIcon
+                  aria-hidden
+                  className={cn(
+                    THREAD_DETAILS_PANEL_CHEVRON_CLASS,
+                    "transition-transform motion-reduce:transition-none",
+                    expanded && "rotate-180",
+                  )}
+                />
+              </ThreadDetailsControl>
+            </div>
+          ) : null}
+
           {density === "full" && !props.draftId ? (
-            <ThreadAutomationsPanel environmentId={props.environmentId} threadId={props.threadId} />
+            <ThreadDetailsMoreRow open={expanded}>
+              <ThreadAutomationsPanel
+                environmentId={props.environmentId}
+                threadId={props.threadId}
+              />
+            </ThreadDetailsMoreRow>
           ) : null}
 
           {density === "full" && !props.draftId ? (

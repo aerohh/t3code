@@ -1,6 +1,7 @@
 import type { ComponentProps, ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
+import { Collapsible, CollapsiblePanel } from "../ui/collapsible";
 
 export function ThreadDetailsSection({
   headingId,
@@ -40,5 +41,17 @@ export function ThreadDetailsSection({
       </div>
       {children}
     </section>
+  );
+}
+
+/**
+ * A details row that only shows while the panel is expanded. It stays mounted while
+ * hidden, so collapsing changes only what is visible, never how the control behaves.
+ */
+export function ThreadDetailsMoreRow({ open, children }: { open: boolean; children: ReactNode }) {
+  return (
+    <Collapsible open={open}>
+      <CollapsiblePanel keepMounted>{children}</CollapsiblePanel>
+    </Collapsible>
   );
 }
