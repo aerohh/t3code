@@ -25,6 +25,8 @@ import {
   setNotificationBadge,
   unlockNotificationAudio,
 } from "../threadNotifications";
+import { useThreadPairPartner } from "../threadPairStore";
+import { resolveThreadRouteTarget } from "../threadRoutes";
 import { resolveSidebarThreadStatus } from "./Sidebar.logic";
 import { toastManager } from "./ui/toast";
 
@@ -116,9 +118,12 @@ function EnvironmentNotifications({
     (settings) => settings.inAppNotificationsEnabled,
   );
   const navigate = useNavigate();
-  const { environmentId: activeEnvironmentId, threadId: activeThreadId } = useParams({
-    strict: false,
-  });
+  const routeParams = useParams({ strict: false });
+  const { environmentId: activeEnvironmentId, threadId: activeThreadId } = routeParams;
+  const routeTarget = resolveThreadRouteTarget(routeParams);
+  const pairPartnerRef = useThreadPairPartner(
+    routeTarget?.kind === "server" ? routeTarget.threadRef : null,
+  );
   const previous = useRef(new Map<ThreadId, NotificationState>());
 
   useEffect(() => {
@@ -181,7 +186,8 @@ function EnvironmentNotifications({
         inAppNotificationsEnabled &&
         document.visibilityState === "visible" &&
         document.hasFocus() &&
-        (activeEnvironmentId !== environmentId || activeThreadId !== thread.id)
+        (activeEnvironmentId !== environmentId || activeThreadId !== thread.id) &&
+        (pairPartnerRef?.environmentId !== environmentId || pairPartnerRef.threadId !== thread.id)
       ) {
         const toastId = toastManager.add({
           type: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",
@@ -248,6 +254,7 @@ function EnvironmentNotifications({
     mode,
     navigate,
     onNotification,
+    pairPartnerRef,
     threads,
   ]);
 

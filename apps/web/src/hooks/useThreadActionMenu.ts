@@ -42,6 +42,7 @@ import {
   selectProjectGroupingSettings,
 } from "../logicalProject";
 import { buildPhysicalToLogicalProjectKeyMap } from "../sidebarProjectGrouping";
+import { readSideBySideMenuOption, runSideBySideMenuOption } from "../threadPairStore";
 import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
 import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
@@ -147,6 +148,7 @@ export function useThreadActionMenu(input: {
         };
         const isRegeneratingTitle = thread.titleRegeneration != null;
         const snoozePresets = resolveSnoozePresets(now, timestampFormat);
+        const sideBySide = readSideBySideMenuOption(threadRef, threadRef);
         const items = buildThreadActionMenuItems({
           canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
           branch: thread.branch ?? null,
@@ -160,6 +162,7 @@ export function useThreadActionMenu(input: {
           isRunning: !threadRuntimeCanArchive(thread.runtime),
           supports,
           snoozePresets,
+          sideBySide,
         });
         const clicked = await settlePromise(() => api.contextMenu.show(items, position));
         if (clicked._tag === "Failure" || clicked.value === null) return;
@@ -196,6 +199,10 @@ export function useThreadActionMenu(input: {
           }
         };
         switch (action) {
+          case "open-beside":
+          case "close-side-by-side":
+            if (sideBySide) runSideBySideMenuOption(sideBySide, threadRef, threadRef);
+            return;
           case "project-settings": {
             const project = projects.find(
               (candidate) =>
