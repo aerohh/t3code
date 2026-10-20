@@ -63,7 +63,12 @@ function Card({
           detailsCardPlacement: inline ? placement : null,
         }}
       >
-        <ThreadDetailsCard threadRef={threadRef} anchor={fixture.anchor} handle={fixture.handle}>
+        <ThreadDetailsCard
+          threadRef={threadRef}
+          expanded={false}
+          anchor={fixture.anchor}
+          handle={fixture.handle}
+        >
           {() => <p>Details for {threadRef.threadId}</p>}
         </ThreadDetailsCard>
       </ChatCanvasContext>

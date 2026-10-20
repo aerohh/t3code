@@ -13,11 +13,13 @@ import { observeResize } from "../../lib/observeResize";
 
 export function ThreadDetailsCard({
   threadRef,
+  expanded,
   anchor,
   handle,
   children,
 }: {
   threadRef: ScopedThreadRef;
+  expanded: boolean;
   anchor: RefObject<Element | null>;
   handle: ReturnType<typeof PopoverCreateHandle>;
   children: (density: "full" | "compact" | "essential") => ReactNode;
@@ -33,7 +35,9 @@ export function ThreadDetailsCard({
   const popoverOpen = useRightPanelStore((state) =>
     selectThreadPanelOpen(state.threadPanelVisibilityByThreadKey, threadRef, "popover"),
   );
-  const measurementKey = `${threadRef.environmentId}:${threadRef.threadId}:${preferredPlacement?.width ?? "popup"}`;
+  // Expanding adds rows, so each state keeps its own heights. Sharing them would leave
+  // the larger expanded height in place after collapsing and keep the card folded.
+  const measurementKey = `${threadRef.environmentId}:${threadRef.threadId}:${preferredPlacement?.width ?? "popup"}:${expanded ? "expanded" : "collapsed"}`;
   const [measurements, setMeasurements] = useState({
     key: measurementKey,
     heights: { full: 0, compact: 0 },
