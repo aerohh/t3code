@@ -1,4 +1,5 @@
 import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
+import { ChevronRightIcon } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { type ReactNode } from "react";
@@ -8,7 +9,7 @@ import {
   sidebarMarkerId,
   type SidebarListMarker,
 } from "../Sidebar.logic";
-import { SIDEBAR_SORTABLE_DRAG_DISABLED } from "./SidebarThreadRow";
+import { SIDEBAR_SORTABLE_DRAG_DISABLED, sidebarTagBoxSurfaceClassName } from "./SidebarThreadRow";
 import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 
 function SortableSidebarMarker(props: {
@@ -137,5 +138,100 @@ export function SidebarSectionHeader(props: {
         {props.label}
       </CollapsibleSectionHeader>
     </SortableSidebarMarker>
+  );
+}
+
+// Box headers and "Show more" rows shift with the list during a drag like
+// the section markers, but resolveSidebarDropTarget never accepts them.
+export function SortableSidebarTagBoxItem(props: {
+  id: string;
+  className: string;
+  children: ReactNode;
+}) {
+  const { setNodeRef, transform, transition } = useSortable({
+    id: props.id,
+    disabled: SIDEBAR_SORTABLE_DRAG_DISABLED,
+    animateLayoutChanges: animateSidebarLayoutChanges,
+  });
+  return (
+    <li
+      ref={setNodeRef}
+      data-thread-selection-safe
+      className={cn("list-none", props.className)}
+      style={{
+        transform: CSS.Translate.toString(transform),
+        transition,
+        visibility: transform?.scaleY === 0 ? "hidden" : undefined,
+      }}
+    >
+      {props.children}
+    </li>
+  );
+}
+
+export function SidebarTagBoxHeader(props: {
+  id: string;
+  displayName: string;
+  threadCount: number;
+  open: boolean;
+  /** A box with no rows below its header ends here. */
+  endsBox: boolean;
+  /** Only closed active boxes report; null hides the line. Dot colors match
+      the rows' own working and approval labels. */
+  summary: { readonly workingCount: number; readonly needsYouCount: number } | null;
+  onToggle: () => void;
+}) {
+  const summary =
+    props.summary !== null && props.summary.workingCount + props.summary.needsYouCount > 0
+      ? props.summary
+      : null;
+  return (
+    <SortableSidebarTagBoxItem id={props.id} className={cn("mx-0.5 pt-1", props.endsBox && "mb-3")}>
+      <div
+        className={cn(
+          "border-x border-t p-1",
+          sidebarTagBoxSurfaceClassName(props.endsBox ? "whole" : "top"),
+          props.endsBox ? "rounded-lg border-b" : "rounded-t-lg",
+        )}
+      >
+        <button
+          type="button"
+          aria-expanded={props.open}
+          onClick={props.onToggle}
+          className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md bg-sidebar-foreground/4 px-2 text-left text-xs font-semibold text-sidebar-foreground hover:bg-sidebar-foreground/6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+        >
+          <ChevronRightIcon
+            aria-hidden
+            className={cn(
+              "size-3 shrink-0 text-sidebar-muted-foreground transition-transform",
+              props.open && "rotate-90",
+            )}
+          />
+          <span className="min-w-0 flex-1 truncate">{props.displayName}</span>
+          <span className="shrink-0 rounded-full bg-sidebar-foreground/8 px-1.5 text-2xs font-medium leading-4 tabular-nums text-sidebar-muted-foreground">
+            {props.threadCount}
+          </span>
+        </button>
+        {summary ? (
+          <div className="flex items-center gap-1.5 pt-1 pb-0.5 ps-6.5 pe-2 text-2xs text-sidebar-muted-foreground">
+            {summary.workingCount > 0 ? (
+              <span className="flex items-center gap-1">
+                <span aria-hidden className="size-1.5 rounded-full bg-info" />
+                {summary.workingCount} working
+              </span>
+            ) : null}
+            {summary.workingCount > 0 && summary.needsYouCount > 0 ? (
+              <span aria-hidden>·</span>
+            ) : null}
+            {summary.needsYouCount > 0 ? (
+              <span className="flex items-center gap-1">
+                <span aria-hidden className="size-1.5 rounded-full bg-warning" />
+                {summary.needsYouCount} needs you
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </SortableSidebarTagBoxItem>
   );
 }

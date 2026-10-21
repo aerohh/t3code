@@ -43,6 +43,7 @@ import {
   readEnvironmentSupportsActiveReorder,
   readEnvironmentSupportsSettlement,
   readEnvironmentSupportsSnooze,
+  readEnvironmentSupportsTags,
   readEnvironmentSupportsVisitedTracking,
   readEnvironmentThreadRefs,
   readProject,
@@ -128,6 +129,18 @@ export class ThreadAutoSettleOptOutUnsupportedError extends Schema.TaggedError<T
 ) {
   override get message(): string {
     return "This environment's server does not support turning auto-settle off per thread yet. Update the server to use it.";
+  }
+}
+
+export class ThreadTagsUnsupportedError extends Schema.TaggedError<ThreadTagsUnsupportedError>()(
+  "ThreadTagsUnsupportedError",
+  {
+    environmentId: EnvironmentId,
+    threadId: ThreadId,
+  },
+) {
+  override get message(): string {
+    return "This environment's server does not support tags yet. Update the server to use tags.";
   }
 }
 
@@ -270,6 +283,9 @@ export function useThreadActions() {
     reportFailure: false,
   });
   const setThreadAutoSettleMutation = useOrchestrationCommand(threadEnvironment.setAutoSettle, {
+    reportFailure: false,
+  });
+  const setThreadTagMutation = useOrchestrationCommand(threadEnvironment.setTag, {
     reportFailure: false,
   });
   const reorderPinnedThreadMutation = useOrchestrationCommand(threadEnvironment.reorderPin, {
@@ -653,6 +669,28 @@ export function useThreadActions() {
     });
   };
 
+  /** Puts the thread under one tag, replacing any tag it had. null removes the tag. */
+  const setThreadTag = async (target: ScopedThreadRef, tag: string | null) => {
+    if (!readEnvironmentSupportsTags(target.environmentId)) {
+      return AsyncResult.failure(
+        Cause.fail(
+          new ThreadTagsUnsupportedError({
+            environmentId: target.environmentId,
+            threadId: target.threadId,
+          }),
+        ),
+      );
+    }
+    // The optimistic preview shows the name as sent, so trim here rather
+    // than let the row flash the untrimmed name until the server answers.
+    // A blank name is no tag at all.
+    const trimmedTag = tag?.trim() ?? "";
+    return setThreadTagMutation({
+      environmentId: target.environmentId,
+      input: { threadId: target.threadId, tag: trimmedTag === "" ? null : trimmedTag },
+    });
+  };
+
   const pinThread = async (target: ScopedThreadRef, opts: { orderKey?: string } = {}) => {
     if (!readEnvironmentSupportsPinning(target.environmentId)) {
       return AsyncResult.failure(
@@ -934,5 +972,6 @@ export function useThreadActions() {
     reorderActiveThread,
     markThreadUnread,
     setThreadAutoSettle,
+    setThreadTag,
   };
 }

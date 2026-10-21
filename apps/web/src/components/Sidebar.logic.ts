@@ -14,6 +14,7 @@ import {
   type ThreadSearchShell,
 } from "@t3tools/client-runtime/state/thread-search";
 import { foldSearchQuery, rankSearchItems, scoreThreadSearch } from "@t3tools/shared/paletteSearch";
+import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ContextMenuItem, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { isSideChatThread } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
@@ -194,12 +195,49 @@ export function sidebarMarkerId(marker: SidebarListMarker): string {
   return `${SIDEBAR_MARKER_PREFIX}${marker}`;
 }
 
+export type SidebarTagBoxSection = "active" | "settled";
+
 export type SidebarListItem =
   | { readonly kind: "thread"; readonly key: string; readonly section: SidebarSection }
-  | { readonly kind: "marker"; readonly marker: SidebarListMarker };
+  | { readonly kind: "marker"; readonly marker: SidebarListMarker }
+  /** Tag boxes sit in the sortable list only so they shift with the rows
+      during a drag. Nothing is lifted out of a box or dropped into one:
+      resolveSidebarDropTarget rejects them as targets. */
+  | {
+      readonly kind: "tag-box-header";
+      readonly section: SidebarTagBoxSection;
+      readonly tagKey: string;
+    }
+  | {
+      readonly kind: "tag-box-thread";
+      readonly key: string;
+      readonly section: SidebarTagBoxSection;
+      readonly tagKey: string;
+    }
+  /** "Show more" at the bottom of an open settled box. */
+  | { readonly kind: "tag-box-more"; readonly tagKey: string };
+
+const SIDEBAR_TAG_BOX_PREFIX = "sidebar-tag-box-";
+
+/** Tag names may contain colons, which only thread keys may. Escaping "%"
+    first keeps the encoding one-to-one, and unlike encodeURIComponent it
+    cannot throw on an odd string. */
+function encodeTagKeyForSidebarId(tagKey: string): string {
+  return tagKey.replaceAll("%", "%25").replaceAll(":", "%3A");
+}
 
 export function sidebarListItemId(item: SidebarListItem): string {
-  return item.kind === "thread" ? item.key : sidebarMarkerId(item.marker);
+  switch (item.kind) {
+    case "thread":
+    case "tag-box-thread":
+      return item.key;
+    case "marker":
+      return sidebarMarkerId(item.marker);
+    case "tag-box-header":
+      return `${SIDEBAR_TAG_BOX_PREFIX}${item.section}-${encodeTagKeyForSidebarId(item.tagKey)}`;
+    case "tag-box-more":
+      return `${SIDEBAR_TAG_BOX_PREFIX}more-${encodeTagKeyForSidebarId(item.tagKey)}`;
+  }
 }
 
 function sectionAtSidebarSlot(items: readonly SidebarListItem[], index: number): SidebarSection {
@@ -229,6 +267,8 @@ export function resolveSidebarDropTarget(
   const activeIndex = items.findIndex((item) => sidebarListItemId(item) === activeKey);
   const overIndex = items.findIndex((item) => sidebarListItemId(item) === overId);
   if (activeIndex === -1 || overIndex === -1 || items[activeIndex]?.kind !== "thread") return null;
+  const overKind = items[overIndex]?.kind;
+  if (overKind !== "thread" && overKind !== "marker") return null;
   const moved = items.filter((_, index) => index !== activeIndex);
   moved.splice(overIndex, 0, items[activeIndex]!);
   const section = sectionAtSidebarSlot(moved, overIndex);
@@ -245,6 +285,9 @@ export function resolveSidebarDropTarget(
         item.marker === "settled-header"
       )
         break;
+    } else if (item.kind !== "thread") {
+      // Boxed rows keep their own order; the loose list is arranged without them.
+      continue;
     } else if (currentSection === "pinned") pinnedOrder.push(item.key);
     else activeOrder.push(item.key);
   }
@@ -610,6 +653,190 @@ export function filterSidebarV2VisibleThreads<
       (scopedProjectKeys === null ||
         scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
   );
+}
+
+/**
+ * Tag names are case-insensitive: "Billing" and "billing" are one tag. Every
+ * place that compares or groups tags goes through this key. Plain toLowerCase,
+ * not the locale variant, so every client groups the same names together.
+ */
+export function threadTagGroupKey(tagName: string): string {
+  return tagName.toLowerCase();
+}
+
+/**
+ * Every distinct tag on the chats the sidebar shows, across all environments
+ * and projects, sorted alphabetically ignoring case. When chats spell one tag
+ * differently, the spelling most chats use wins; a tie goes to the spelling
+ * that sorts first, so the label never flips between renders.
+ */
+export function collectSidebarThreadTagNames<
+  T extends Pick<
+    SidebarThreadSummary,
+    "archivedAt" | "environmentId" | "id" | "lineage" | "sideChat" | "tag" | "deletedAt"
+  > & {
+    projectId: string;
+  },
+>(threads: readonly T[]): string[] {
+  const spellingCountsByKey = new Map<string, Map<string, number>>();
+  // Nesting a delegated task under its parent doesn't make its tag any less a name to offer.
+  for (const thread of filterSidebarV2VisibleThreads(threads, null, new Set())) {
+    if (thread.tag === null || thread.deletedAt !== null) continue;
+    const key = threadTagGroupKey(thread.tag);
+    const spellingCounts = spellingCountsByKey.get(key) ?? new Map<string, number>();
+    spellingCounts.set(thread.tag, (spellingCounts.get(thread.tag) ?? 0) + 1);
+    spellingCountsByKey.set(key, spellingCounts);
+  }
+  const displayNames: string[] = [];
+  for (const spellingCounts of spellingCountsByKey.values()) {
+    let displayName: string | null = null;
+    let displayCount = 0;
+    for (const [spelling, count] of spellingCounts) {
+      const winsTie = count === displayCount && displayName !== null && spelling < displayName;
+      if (count > displayCount || winsTie) {
+        displayName = spelling;
+        displayCount = count;
+      }
+    }
+    if (displayName !== null) displayNames.push(displayName);
+  }
+  return displayNames.sort(
+    (left, right) =>
+      left.localeCompare(right, undefined, { sensitivity: "base" }) ||
+      (threadTagGroupKey(left) < threadTagGroupKey(right) ? -1 : 1),
+  );
+}
+
+/**
+ * The name to save for what the user typed: trimmed, and the existing tag's
+ * spelling when it matches one ignoring case, so typing "billing" joins
+ * "Billing" instead of starting a second tag. Null when nothing was typed.
+ */
+export function resolveThreadTagNameForSave(
+  typedName: string,
+  existingTagNames: readonly string[],
+): string | null {
+  const trimmedName = typedName.trim();
+  if (trimmedName === "") return null;
+  const typedKey = threadTagGroupKey(trimmedName);
+  return existingTagNames.find((name) => threadTagGroupKey(name) === typedKey) ?? trimmedName;
+}
+
+/** One tag's chats from a single sidebar list, drawn as a folder box. */
+export interface SidebarTagBox<T> {
+  readonly tagKey: string;
+  readonly displayName: string;
+  readonly threads: readonly T[];
+}
+
+/**
+ * Splits an already sorted sidebar list into one box per tag and the untagged
+ * rest, keeping the list's order inside each. Boxes follow `tagDisplayNames`
+ * (from collectSidebarThreadTagNames), which is alphabetical, so a box never
+ * moves because one of its chats got busy.
+ */
+export function groupSidebarThreadsByTag<T extends Pick<SidebarThreadSummary, "tag">>(
+  threads: readonly T[],
+  tagDisplayNames: readonly string[],
+): { readonly boxes: SidebarTagBox<T>[]; readonly looseThreads: T[] } {
+  const looseThreads: T[] = [];
+  const threadsByTagKey = new Map<string, { readonly spelling: string; readonly threads: T[] }>();
+  for (const thread of threads) {
+    if (thread.tag === null) {
+      looseThreads.push(thread);
+      continue;
+    }
+    const tagKey = threadTagGroupKey(thread.tag);
+    const group = threadsByTagKey.get(tagKey);
+    if (group) group.threads.push(thread);
+    else threadsByTagKey.set(tagKey, { spelling: thread.tag, threads: [thread] });
+  }
+  const rankByTagKey = new Map(
+    tagDisplayNames.map((name, index) => [threadTagGroupKey(name), { name, index }] as const),
+  );
+  const boxes = Array.from(threadsByTagKey, ([tagKey, group]) => ({
+    tagKey,
+    displayName: rankByTagKey.get(tagKey)?.name ?? group.spelling,
+    threads: group.threads,
+  }));
+  boxes.sort(
+    (left, right) =>
+      (rankByTagKey.get(left.tagKey)?.index ?? Number.POSITIVE_INFINITY) -
+        (rankByTagKey.get(right.tagKey)?.index ?? Number.POSITIVE_INFINITY) ||
+      (left.tagKey < right.tagKey ? -1 : left.tagKey > right.tagKey ? 1 : 0),
+  );
+  return { boxes, looseThreads };
+}
+
+/** What a closed box reports about its chats, using the same status each row shows. */
+export function summarizeSidebarTagBoxStatus(threads: readonly SidebarThreadStatusInput[]): {
+  readonly workingCount: number;
+  readonly needsYouCount: number;
+} {
+  let workingCount = 0;
+  let needsYouCount = 0;
+  for (const thread of threads) {
+    const status = resolveSidebarThreadStatus(thread);
+    if (status === "working") workingCount += 1;
+    else if (status === "approval" || status === "input") needsYouCount += 1;
+  }
+  return { workingCount, needsYouCount };
+}
+
+/** The boxes the user flipped from their default, by tag key. Active boxes
+    start open, so only closed ones are stored; settled boxes start closed,
+    so only open ones are. */
+export interface SidebarTagBoxToggles {
+  readonly closedActiveTagKeys: readonly string[];
+  readonly openSettledTagKeys: readonly string[];
+}
+
+export function isSidebarTagBoxOpen(
+  toggles: SidebarTagBoxToggles,
+  section: SidebarTagBoxSection,
+  tagKey: string,
+): boolean {
+  return section === "active"
+    ? !toggles.closedActiveTagKeys.includes(tagKey)
+    : toggles.openSettledTagKeys.includes(tagKey);
+}
+
+export function toggleSidebarTagBox(
+  toggles: SidebarTagBoxToggles,
+  section: SidebarTagBoxSection,
+  tagKey: string,
+): SidebarTagBoxToggles {
+  const flip = (tagKeys: readonly string[]) =>
+    tagKeys.includes(tagKey) ? tagKeys.filter((key) => key !== tagKey) : [...tagKeys, tagKey];
+  return section === "active"
+    ? { ...toggles, closedActiveTagKeys: flip(toggles.closedActiveTagKeys) }
+    : { ...toggles, openSettledTagKeys: flip(toggles.openSettledTagKeys) };
+}
+
+/**
+ * The rows a box renders. Open: the first `visibleCount` (settled boxes page
+ * like the settled tail). Closed: none. Either way the open chat stays, so it
+ * never hides inside a folder.
+ */
+export function resolveSidebarTagBoxRows<
+  T extends { readonly environmentId: EnvironmentId; readonly id: ThreadId },
+>(input: {
+  readonly threads: readonly T[];
+  readonly open: boolean;
+  readonly visibleCount: number;
+  readonly routeThreadKey: string | null;
+}): { readonly rows: readonly T[]; readonly hiddenCount: number } {
+  const isRouteThread = (thread: T) =>
+    input.routeThreadKey !== null &&
+    scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === input.routeThreadKey;
+  if (!input.open) {
+    const routeThread = input.threads.find(isRouteThread);
+    return { rows: routeThread === undefined ? [] : [routeThread], hiddenCount: 0 };
+  }
+  const rows = input.threads.slice(0, input.visibleCount);
+  const hiddenRouteThread = input.threads.slice(input.visibleCount).find(isRouteThread);
+  if (hiddenRouteThread !== undefined) rows.push(hiddenRouteThread);
+  return { rows, hiddenCount: input.threads.length - rows.length };
 }
 
 export function buildBulkTitleRegenerationContextMenuItem(input: {

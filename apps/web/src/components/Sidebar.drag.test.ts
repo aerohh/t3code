@@ -34,15 +34,29 @@ function layout(
   cardHeight = 82,
 ) {
   let top = 100;
-  const rects = items.map((item) => {
+  const rects = items.map((item, index) => {
+    // Box parts below a header pull up over the 1px list gap, as in the DOM.
+    if (item.kind === "tag-box-thread" || item.kind === "tag-box-more") top -= 1;
     const height =
-      item.kind === "thread"
+      item.kind === "thread" || item.kind === "tag-box-thread"
         ? (item.section === "pinned" || item.section === "active" ? cardHeight : 36) * scale
-        : item.marker === "pinned-header" || item.marker === "pinned-divider"
-          ? 0
-          : (item.marker.endsWith("placeholder") ? 0 : 32) * scale;
+        : item.kind !== "marker"
+          ? 36 * scale
+          : item.marker === "pinned-header" || item.marker === "pinned-divider"
+            ? 0
+            : (item.marker.endsWith("placeholder") ? 0 : 32) * scale;
     const rect = { top, height, bottom: top + height, left: 0, right: 260, width: 260 };
     top += height + 1;
+    // A box's last part carries a 12px bottom margin, as in the DOM.
+    const next = items[index + 1];
+    if (
+      item.kind !== "thread" &&
+      item.kind !== "marker" &&
+      next?.kind !== "tag-box-thread" &&
+      next?.kind !== "tag-box-more"
+    ) {
+      top += 12;
+    }
     return rect;
   });
   const activeIndex = items.findIndex((item) => sidebarListItemId(item) === active);
@@ -679,6 +693,86 @@ describe("sidebar drag projection", () => {
     );
     expect(result.get(sidebarMarkerId("snoozed-header"))).toEqual({ ...stationary, y: 83 });
     expect(result.get(sidebarMarkerId("settled-header"))?.y).toBe(46);
+  });
+});
+
+describe("sidebar tag boxes during a drag", () => {
+  const tagBoxHeader = (section: "active" | "settled", tagKey: string): SidebarListItem => ({
+    kind: "tag-box-header",
+    section,
+    tagKey,
+  });
+  const boxedThread = (
+    key: string,
+    section: "active" | "settled",
+    tagKey: string,
+  ): SidebarListItem => ({ kind: "tag-box-thread", key, section, tagKey });
+  const withoutBoxes = [
+    pinnedHeader,
+    thread("p", "pinned"),
+    divider,
+    marker("active-placeholder"),
+    thread("a1", "active"),
+    thread("a2", "active"),
+    settledHeader,
+    marker("settled-placeholder"),
+    thread("s1", "settled"),
+  ];
+  const withBoxes = [
+    pinnedHeader,
+    thread("p", "pinned"),
+    divider,
+    tagBoxHeader("active", "billing"),
+    boxedThread("b1", "active", "billing"),
+    boxedThread("b2", "active", "billing"),
+    marker("active-placeholder"),
+    thread("a1", "active"),
+    thread("a2", "active"),
+    settledHeader,
+    tagBoxHeader("settled", "ops"),
+    boxedThread("o1", "settled", "ops"),
+    { kind: "tag-box-more", tagKey: "ops" } satisfies SidebarListItem,
+    marker("settled-placeholder"),
+    thread("s1", "settled"),
+  ];
+
+  it.each([
+    ["a2", "a1"],
+    ["p", "a1"],
+    ["p", sidebarMarkerId("pinned-divider")],
+    ["p", sidebarMarkerId("active-placeholder")],
+    ["a1", sidebarMarkerId("pinned-header")],
+    ["a1", sidebarMarkerId("settled-header")],
+    ["a1", "s1"],
+  ])("resolves an untagged drop of %s over %s the same as without boxes", (active, over) => {
+    const expected = resolveSidebarDropTarget(withoutBoxes, active, over);
+    expect(expected).not.toBeNull();
+    expect(resolveSidebarDropTarget(withBoxes, active, over)).toEqual(expected);
+  });
+
+  it("never treats a box header, boxed row, or Show more as a drop target", () => {
+    for (const item of withBoxes) {
+      if (item.kind === "thread" || item.kind === "marker") continue;
+      expect(resolveSidebarDropTarget(withBoxes, "a1", sidebarListItemId(item))).toBeNull();
+    }
+  });
+
+  it("moves the boxes as one block while a pin leaves for the loose list", () => {
+    // The test layout gives empty placeholders a list gap the DOM doesn't
+    // have; without them every measured top is exact.
+    const items = withBoxes.filter(
+      (item) => item.kind !== "marker" || !item.marker.endsWith("placeholder"),
+    );
+    const input = { items, settledOrder: ["s1"], settledExpanded: true };
+    const atPickup = preview(input, "a1", "a1");
+    for (const transform of atPickup.values()) expect(transform).toEqual(stationary);
+
+    const unpinned = preview(input, "p", "a1");
+    for (const id of ["b1", "b2", sidebarListItemId(tagBoxHeader("active", "billing"))]) {
+      expect(unpinned.get(id)).toEqual({ ...stationary, y: -83 });
+    }
+    expect(unpinned.get("a2")).toEqual(stationary);
+    expect(unpinned.get("o1")).toEqual(stationary);
   });
 });
 

@@ -40,6 +40,7 @@ import {
   interruptThreadTurn,
   revertThreadCheckpoint,
   resumeThreadQueue,
+  setThreadTag,
   startThreadTurn,
 } from "./commands.ts";
 
@@ -689,6 +690,39 @@ describe("V2 environment commands", () => {
           type: "thread.stop",
           commandId: "stop-outside-history-window",
           threadId: v2ThreadId,
+        },
+      ]);
+    }).pipe(Effect.provide(layerTestCrypto)),
+  );
+
+  it.effect("dispatches a thread tag and a null tag to clear it", () =>
+    Effect.gen(function* () {
+      const dispatched: OrchestrationV2Command[] = [];
+      const supervisor = yield* makeSupervisor({ commands: dispatched, projects: [] });
+
+      yield* setThreadTag({
+        commandId: CommandId.make("tag-command"),
+        threadId: ThreadId.make("thread-1"),
+        tag: "Billing",
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+      yield* setThreadTag({
+        commandId: CommandId.make("clear-tag-command"),
+        threadId: ThreadId.make("thread-1"),
+        tag: null,
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      expect(dispatched).toEqual([
+        {
+          type: "thread.tag.set",
+          commandId: "tag-command",
+          threadId: "thread-1",
+          tag: "Billing",
+        },
+        {
+          type: "thread.tag.set",
+          commandId: "clear-tag-command",
+          threadId: "thread-1",
+          tag: null,
         },
       ]);
     }).pipe(Effect.provide(layerTestCrypto)),

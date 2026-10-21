@@ -18,6 +18,19 @@ const isShelfHeader = (item: SidebarListItem | undefined) =>
   (item.marker === "working-header" ||
     item.marker === "snoozed-header" ||
     item.marker === "settled-header");
+// The parts of a tag box below its header pull up over the list's 1px gap so
+// the box has no seams, so the stack must not count that gap.
+const overlapsListGapAbove = (item: SidebarListItem) =>
+  item.kind === "tag-box-thread" || item.kind === "tag-box-more";
+const isTagBoxItem = (item: SidebarListItem | undefined) =>
+  item !== undefined && item.kind !== "thread" && item.kind !== "marker";
+// Matches the mb-3 on a box's last part in Sidebar.tsx. Margins are outside
+// the measured rects, so the stack has to add the space itself.
+const SIDEBAR_TAG_BOX_BOTTOM_GAP_PX = 12;
+const gapBelow = (item: SidebarListItem, next: SidebarListItem | undefined) =>
+  isTagBoxItem(item) && !(next !== undefined && overlapsListGapAbove(next))
+    ? SIDEBAR_TAG_BOX_BOTTOM_GAP_PX
+    : 0;
 
 export function restrictBelowSidebarLabel(
   { transform, containerNodeRect, draggingNodeRect }: Parameters<Modifier>[0],
@@ -124,12 +137,22 @@ export function createSidebarSortingStrategy(input: {
     let cardHeight = input.cardHeight;
     let slimHeight = input.slimHeight;
     let headerScale: number | undefined;
+    // Boxes hold their place: nothing is lifted out of one or dropped into one.
+    const activeTagBoxItems: SidebarListItem[] = [];
+    const settledTagBoxItems: SidebarListItem[] = [];
     for (const [index, item] of items.entries()) {
       if (item.kind === "marker") {
         if (isShelfHeader(item)) {
           const height = rects[index]?.height;
           if (height) headerScale ??= height / 32;
         }
+        continue;
+      }
+      if (item.kind !== "thread") {
+        (item.kind !== "tag-box-more" && item.section === "active"
+          ? activeTagBoxItems
+          : settledTagBoxItems
+        ).push(item);
         continue;
       }
       if (item.section === "pinned" || item.section === "active" || item.section === "working")
@@ -175,6 +198,7 @@ export function createSidebarSortingStrategy(input: {
     marker("pinned-header");
     projected.push(...groups.pinned);
     marker("pinned-divider");
+    projected.push(...activeTagBoxItems);
     section("active");
     if (items.some((item) => item.kind === "marker" && item.marker === "working-header")) {
       marker("working-header");
@@ -189,13 +213,15 @@ export function createSidebarSortingStrategy(input: {
       projected.push(...groups.snoozed);
     }
     marker("settled-header");
+    projected.push(...settledTagBoxItems);
     section("settled");
     const heights = projected.map((item) => {
       const index = indices.get(sidebarListItemId(item));
       const rect = index === undefined ? undefined : rects[index];
       const fallback =
-        item.kind === "thread" &&
-        (item.section === "pinned" || item.section === "active" || item.section === "working")
+        (item.kind === "thread" &&
+          (item.section === "pinned" || item.section === "active" || item.section === "working")) ||
+        (item.kind === "tag-box-thread" && item.section === "active")
           ? cardHeight
           : slimHeight;
       const moved = item.kind === "thread" && item.key === active.key;
@@ -212,12 +238,17 @@ export function createSidebarSortingStrategy(input: {
     const shelfRect = rects[firstShelf];
     const beforeShelf = rects[firstShelf - 1];
     const lastRect = rects.at(-1);
+    const stackHeight = projected.reduce(
+      (sum, item, index) =>
+        sum +
+        heights[index]! +
+        (overlapsListGapAbove(item) ? 0 : 1) +
+        gapBelow(item, projected[index + 1]),
+      -1,
+    );
     let shelfSpace =
       shelfRect && beforeShelf && lastRect && shelfRect.top > beforeShelf.bottom + 1
-        ? Math.max(
-            0,
-            lastRect.bottom - rects[0].top - heights.reduce((sum, height) => sum + height + 1, -1),
-          )
+        ? Math.max(0, lastRect.bottom - rects[0].top - stackHeight)
         : 0;
     const result = items.map(() => hidden);
     let top = rects[0].top;
@@ -226,10 +257,11 @@ export function createSidebarSortingStrategy(input: {
         top += shelfSpace;
         shelfSpace = 0;
       }
+      if (overlapsListGapAbove(item)) top -= 1;
       const index = indices.get(sidebarListItemId(item));
       const rect = index === undefined ? undefined : rects[index];
       if (index !== undefined && rect) result[index] = { ...stationary, y: top - rect.top };
-      top += heights[projectedIndex]! + 1;
+      top += heights[projectedIndex]! + 1 + gapBelow(item, projected[projectedIndex + 1]);
     }
     result[activeIndex] = stationary;
     return result;
