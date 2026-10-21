@@ -2,11 +2,13 @@ import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 
 import type { SideBySideMenuOption } from "../threadPairStore";
+import { threadTagGroupKey } from "./Sidebar.logic";
 
 /**
  * Ids for the per-thread action menu. Snooze presets are dispatched as
  * `snooze:<presetId>` so the union stays closed while the preset list
- * remains data-driven.
+ * remains data-driven. Tags are picked by position in the menu's tag list,
+ * not by name, so a tag the user named "new" cannot collide with "tag:new".
  */
 export type ThreadActionMenuId =
   | "new-thread-on-branch"
@@ -23,6 +25,10 @@ export type ThreadActionMenuId =
   | "snooze"
   | `snooze:${string}`
   | "unsnooze"
+  | "tag"
+  | `tag:pick:${number}`
+  | "tag:new"
+  | "untag"
   | "rename"
   | "regenerate-title"
   | "mark-unread"
@@ -111,6 +117,10 @@ export interface ThreadActionMenuState {
   readonly isRegeneratingTitle: boolean;
   /** Archive rejects a thread with an attached provider, so disable it here rather than let the action fail. */
   readonly isRunning: boolean;
+  /** The thread's own tag, as stored. */
+  readonly currentTag: string | null;
+  /** Every tag to offer, in menu order (see collectSidebarThreadTagNames). */
+  readonly tagNames: ReadonlyArray<string>;
   readonly supports: {
     readonly settlement: boolean;
     /** Server understands thread.auto-settle.set. */
@@ -118,9 +128,20 @@ export interface ThreadActionMenuState {
     readonly snooze: boolean;
     readonly pinning: boolean;
     readonly titleRegeneration: boolean;
+    /** Server understands thread.tag.set. */
+    readonly tags: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
   readonly sideBySide: SideBySideMenuOption | null;
+}
+
+/** The tag name behind a `tag:pick:<index>` menu id, or null for any other id. */
+export function readPickedThreadTagName(
+  action: ThreadActionMenuId,
+  tagNames: ReadonlyArray<string>,
+): string | null {
+  if (!action.startsWith("tag:pick:")) return null;
+  return tagNames[Number(action.slice("tag:pick:".length))] ?? null;
 }
 
 /** Local navigation and layout, read markers, and copying remain available to read-only clients. */
@@ -192,6 +213,33 @@ export function buildThreadActionMenuItems(
                   { id: "snooze:custom" as const, label: "Custom…", separatorBefore: true },
                 ],
               },
+        ]
+      : []),
+    ...(state.supports.tags
+      ? [
+          {
+            id: "tag" as const,
+            label: "Move to tag",
+            icon: "folder",
+            children: [
+              ...state.tagNames.map((tagName, index) => ({
+                id: `tag:pick:${index}` as const,
+                label: tagName,
+                // The thread may store another spelling of the listed name.
+                checked:
+                  state.currentTag !== null &&
+                  threadTagGroupKey(tagName) === threadTagGroupKey(state.currentTag),
+              })),
+              {
+                id: "tag:new" as const,
+                label: "New tag…",
+                separatorBefore: state.tagNames.length > 0,
+              },
+            ],
+          },
+          ...(state.currentTag !== null
+            ? [{ id: "untag" as const, label: "Remove from tag", icon: "folder" }]
+            : []),
         ]
       : []),
     { id: "rename", label: "Rename thread", icon: "pencil", separatorBefore: true },

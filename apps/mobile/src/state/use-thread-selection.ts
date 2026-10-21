@@ -110,6 +110,7 @@ function threadDetailToShell(
     unsettledAt: thread.unsettledAt,
     activeOrderKey: thread.activeOrderKey,
     autoSettleDisabledAt: thread.autoSettleDisabledAt,
+    tag: thread.tag,
     pinnedAt: thread.pinnedAt,
     pinOrderKey: thread.pinOrderKey,
     snoozedUntil: thread.snoozedUntil ?? null,

@@ -11,6 +11,7 @@ import {
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
   buildMultiSelectThreadContextMenuItems,
+  collectSidebarThreadTagNames,
   createThreadJumpHintVisibilityController,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
@@ -20,6 +21,7 @@ import {
   getProjectSortTimestamp,
   getSidebarForkParentThreadId,
   getSidebarThreadIdsToPrewarm,
+  groupSidebarThreadsByTag,
   hasUnseenCompletion,
   isContextMenuPointerDown,
   isSidebarSubagentThread,
@@ -39,6 +41,7 @@ import {
   resolveThreadLastVisitedAt,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
+  resolveThreadTagNameForSave,
   resolveWorkingStartedAt,
   pullRequestMatchesSearchQuery,
   searchSidebarThreads,
@@ -53,6 +56,7 @@ import {
   sortProjectsForSidebar,
   sortScopedProjectsForSidebar,
   sortSidebarV2ProjectGroups,
+  summarizeSidebarTagBoxStatus,
   shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
   THREAD_JUMP_HINT_SHOW_DELAY_MS,
@@ -394,6 +398,106 @@ describe("resolveSidebarStageBadgeLabel", () => {
         fallbackStageLabel: "Alpha",
       }),
     ).toBe("Alpha");
+  });
+});
+
+describe("sidebar thread tags", () => {
+  const taggedThread = (id: string, tag: string | null, overrides: ThreadFixtureOverrides = {}) =>
+    makeThreadFixture({ id: ThreadId.make(id), tag, ...overrides });
+
+  it("lists each tag once across projects and environments, alphabetically ignoring case", () => {
+    expect(
+      collectSidebarThreadTagNames([
+        taggedThread("a", "support"),
+        taggedThread("b", "Billing", { environmentId: EnvironmentId.make("remote") }),
+        taggedThread("c", "billing", { projectId: ProjectId.make("project-other") }),
+        taggedThread("d", "Billing"),
+        taggedThread("e", "Zebra"),
+        taggedThread("f", null),
+      ]),
+    ).toEqual(["Billing", "support", "Zebra"]);
+  });
+
+  it("ignores tags on chats the sidebar does not show", () => {
+    const parentId = ThreadId.make("parent");
+    expect(
+      collectSidebarThreadTagNames([
+        taggedThread("archived", "Archived", { archivedAt: "2026-01-02T00:00:00.000Z" }),
+        taggedThread("deleted", "Deleted", { deletedAt: "2026-01-02T00:00:00.000Z" }),
+        taggedThread("subagent", "Subagent", {
+          lineage: {
+            rootThreadId: parentId,
+            parentThreadId: parentId,
+            relationshipToParent: "subagent",
+          },
+        }),
+        taggedThread("side-chat", "Side chat", {
+          lineage: {
+            rootThreadId: parentId,
+            parentThreadId: parentId,
+            relationshipToParent: "fork",
+          },
+          sideChat: { canReadFiles: false },
+        }),
+        taggedThread("visible", "Visible"),
+      ]),
+    ).toEqual(["Visible"]);
+  });
+
+  it("shows the spelling most chats use, and breaks ties the same way every time", () => {
+    expect(
+      collectSidebarThreadTagNames([
+        taggedThread("a", "billing"),
+        taggedThread("b", "billing"),
+        taggedThread("c", "Billing"),
+      ]),
+    ).toEqual(["billing"]);
+    const tied = [taggedThread("a", "billing"), taggedThread("b", "Billing")];
+    expect(collectSidebarThreadTagNames(tied)).toEqual(["Billing"]);
+    expect(collectSidebarThreadTagNames(tied.toReversed())).toEqual(["Billing"]);
+  });
+
+  it("saves a typed name as the existing tag's spelling when it matches ignoring case", () => {
+    expect(resolveThreadTagNameForSave("  billing ", ["Billing", "Support"])).toBe("Billing");
+    expect(resolveThreadTagNameForSave(" Ops ", ["Billing"])).toBe("Ops");
+    expect(resolveThreadTagNameForSave("   ", ["Billing"])).toBeNull();
+  });
+
+  it("boxes tagged chats alphabetically, one box per tag ignoring case, in list order", () => {
+    const threads = [
+      taggedThread("loose-1", null),
+      taggedThread("support-1", "support"),
+      taggedThread("billing-1", "billing"),
+      taggedThread("loose-2", null),
+      taggedThread("billing-2", "Billing"),
+      taggedThread("billing-3", "Billing"),
+    ];
+    const tagNames = collectSidebarThreadTagNames(threads);
+    const { boxes, looseThreads } = groupSidebarThreadsByTag(threads, tagNames);
+    expect(
+      boxes.map((box) => [box.tagKey, box.displayName, box.threads.map((thread) => thread.id)]),
+    ).toEqual([
+      ["billing", "Billing", ["billing-1", "billing-2", "billing-3"]],
+      ["support", "support", ["support-1"]],
+    ]);
+    expect(looseThreads.map((thread) => thread.id)).toEqual(["loose-1", "loose-2"]);
+    // Activity reorders the list, never the boxes.
+    expect(
+      groupSidebarThreadsByTag(threads.toReversed(), tagNames).boxes.map((box) => box.tagKey),
+    ).toEqual(["billing", "support"]);
+  });
+
+  it("gives a tag whose chats are all settled a settled box but no active box", () => {
+    const active = [taggedThread("a", "Billing"), taggedThread("b", null)];
+    const settled = [taggedThread("c", "Ops"), taggedThread("d", "Billing")];
+    const tagNames = collectSidebarThreadTagNames([...active, ...settled]);
+    expect(groupSidebarThreadsByTag(active, tagNames).boxes.map((box) => box.tagKey)).toEqual([
+      "billing",
+    ]);
+    expect(groupSidebarThreadsByTag(settled, tagNames).boxes.map((box) => box.tagKey)).toEqual([
+      "billing",
+      "ops",
+    ]);
   });
 });
 
@@ -1275,6 +1379,23 @@ describe("resolveThreadStatusPill", () => {
         },
       }),
     ).toMatchObject({ label: "Awaiting Input", pulse: false });
+  });
+
+  it("counts a closed tag box's working and needs-you chats the way rows label them", () => {
+    const idleRuntime = { ...baseThread.runtime, status: "idle" as const, activeRunId: null };
+    expect(
+      summarizeSidebarTagBoxStatus([
+        baseThread,
+        { ...baseThread, runtime: { ...baseThread.runtime, status: "starting" } },
+        { ...baseThread, hasPendingApprovals: true },
+        { ...baseThread, hasPendingUserInput: true },
+        { ...baseThread, runtime: idleRuntime },
+      ]),
+    ).toEqual({ workingCount: 2, needsYouCount: 2 });
+    expect(summarizeSidebarTagBoxStatus([{ ...baseThread, runtime: idleRuntime }])).toEqual({
+      workingCount: 0,
+      needsYouCount: 0,
+    });
   });
 
   it("falls back to working when the thread is actively running without blockers", () => {

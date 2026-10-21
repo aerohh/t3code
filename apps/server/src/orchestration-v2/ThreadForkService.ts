@@ -56,7 +56,7 @@ export function forkableSourceRunStatusError(
 /**
  * Turns a planned fork into a side chat. A fork copies everything from its
  * source, so this clears what would make the hidden chat act on its own:
- * pins, list positions, pull request watches and pending recovery.
+ * pins, list positions, tags, pull request watches and pending recovery.
  */
 export function sideChatThreadFromFork(
   forkThread: OrchestrationV2AppThread,
@@ -69,6 +69,7 @@ export function sideChatThreadFromFork(
     pinnedAt: null,
     pinOrderKey: null,
     activeOrderKey: null,
+    tag: null,
     autoSettleDisabledAt: null,
     unsettledAt: null,
     lastSnoozeWakeAt: null,

@@ -22,6 +22,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as TestClock from "effect/testing/TestClock";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as DelegatedTaskQuestionReactor from "./DelegatedTaskQuestionReactor.ts";
@@ -281,6 +282,65 @@ it.effect(
       });
       assert.isNotNull((yield* projections.getThread(threadId)).deletedAt);
     }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("sets, changes and clears a thread tag without counting it as activity", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const threadId = ThreadId.make("thread:tag-set");
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("create-tag-set"),
+      threadId,
+      projectId: ProjectId.make("project:tag-set"),
+      title: "Tagged",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdBy: "user",
+      creationSource: "web",
+    });
+    const createdShell = yield* projections.getThreadShell(threadId);
+    assert.ok(createdShell);
+    assert.isNull(createdShell.tag);
+
+    for (const tag of ["Billing", "Payments", null]) {
+      // A real gap between commands, so a bumped updatedAt would show.
+      yield* TestClock.adjust("1 minute");
+      yield* orchestrator.dispatch({
+        type: "thread.tag.set",
+        commandId: CommandId.make(`tag-set-${tag}`),
+        threadId,
+        tag,
+      });
+      const thread = yield* projections.getThread(threadId);
+      assert.equal(thread.tag, tag);
+      assert.deepEqual(thread.updatedAt, createdShell.updatedAt);
+      const shell = yield* projections.getThreadShell(threadId);
+      assert.ok(shell);
+      assert.equal(shell.tag, tag);
+      assert.deepEqual(shell.updatedAt, createdShell.updatedAt);
+    }
+
+    yield* orchestrator.dispatch({
+      type: "thread.archive",
+      commandId: CommandId.make("archive-tag-set"),
+      threadId,
+    });
+    const archivedTagSet = yield* orchestrator
+      .dispatch({
+        type: "thread.tag.set",
+        commandId: CommandId.make("tag-set-archived"),
+        threadId,
+        tag: "Billing",
+      })
+      .pipe(Effect.flip);
+    assert.instanceOf(archivedTagSet, Orchestrator.OrchestratorDispatchError);
+    assert.isNull((yield* projections.getThread(threadId)).tag);
+  }).pipe(Effect.provide(layerTest)),
 );
 
 it.effect("implements a proposed plan that the command projection leaves out", () =>

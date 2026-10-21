@@ -422,6 +422,59 @@ const sideChatMarkReachesThreadShell = Effect.gen(function* () {
   assert.deepEqual(listed?.sideChat, { canReadFiles: false });
 });
 
+const tagChangeIsNotThreadActivity = Effect.gen(function* () {
+  const store = yield* ProjectionStore.ProjectionStoreV2;
+  const createdAt = yield* DateTime.now;
+  const threadId = ThreadId.make("thread:tag-not-activity");
+  const thread = {
+    createdBy: "user" as const,
+    creationSource: "web" as const,
+    id: threadId,
+    projectId: ProjectId.make("project:tag-not-activity"),
+    title: "Tagged thread",
+    providerInstanceId,
+    modelSelection,
+    runtimeMode: "full-access" as const,
+    interactionMode: "default" as const,
+    branch: null,
+    worktreePath: null,
+    activeProviderThreadId: null,
+    lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+    forkedFrom: null,
+    createdAt,
+    updatedAt: createdAt,
+    archivedAt: null,
+    settledOverride: null,
+    settledAt: null,
+    lastVisitedAt: null,
+    deletedAt: null,
+  };
+  yield* store.apply({
+    id: EventId.make("event:tag-not-activity:created"),
+    type: "thread.created",
+    threadId,
+    occurredAt: createdAt,
+    payload: thread,
+  });
+  yield* store.apply({
+    id: EventId.make("event:tag-not-activity:tag-set"),
+    type: "thread.tag-set",
+    threadId,
+    occurredAt: DateTime.add(createdAt, { minutes: 1 }),
+    payload: { ...thread, tag: "Billing" },
+  });
+
+  const projection = yield* store.getThreadProjection(threadId);
+  assert.equal(projection.thread.tag, "Billing");
+  assert.deepEqual(projection.thread.updatedAt, createdAt);
+  const shell = yield* store.getThreadShell(threadId);
+  assert.equal(shell?.tag, "Billing");
+  assert.deepEqual(shell?.updatedAt, createdAt);
+  const listed = (yield* store.getShellSnapshot()).threads.find((entry) => entry.id === threadId);
+  assert.equal(listed?.tag, "Billing");
+  assert.deepEqual(listed?.updatedAt, createdAt);
+});
+
 const commandReadsSkipSettledLeafNodes = Effect.gen(function* () {
   const store = yield* ProjectionStore.ProjectionStoreV2;
   const now = yield* DateTime.now;
@@ -511,6 +564,10 @@ it.effect("memory worktree path lookup reads only active threads", () =>
 
 it.effect("memory thread shells carry the side chat mark", () =>
   sideChatMarkReachesThreadShell.pipe(Effect.provide(ProjectionStore.layerMemory)),
+);
+
+it.effect("memory thread shells carry a tag without dating it as activity", () =>
+  tagChangeIsNotThreadActivity.pipe(Effect.provide(ProjectionStore.layerMemory)),
 );
 
 it.effect("memory projection keeps restart-cancelled work through a stale run.updated", () =>
@@ -744,6 +801,10 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
     () => threadWorktreePathsReadActiveThreads,
   );
   it.effect("thread shells carry the side chat mark", () => sideChatMarkReachesThreadShell);
+  it.effect(
+    "thread shells carry a tag without dating it as activity",
+    () => tagChangeIsNotThreadActivity,
+  );
 
   it.effect(
     "keeps restart-cancelled work through a stale run.updated",

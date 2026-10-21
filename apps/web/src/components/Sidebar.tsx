@@ -13,6 +13,7 @@ import {
 } from "./chat/threadContextDrag";
 import { discardComposerDraft } from "../lib/discardComposerDraft";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
+import { requestNewTagName } from "./NewTagDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { useAtomValue } from "@effect/atom-react";
@@ -69,6 +70,7 @@ import {
   AlarmClockOffIcon,
   ArrowRightLeftIcon,
   CheckIcon,
+  ChevronRightIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
@@ -195,11 +197,13 @@ import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
 import {
   buildDraftActionMenuItems,
   buildThreadActionMenuItems,
+  readPickedThreadTagName,
   threadActionRequiresOperate,
 } from "./threadActionMenu.logic";
 import {
   animateSidebarLayoutChanges,
   applySidebarThreadDrop,
+  collectSidebarThreadTagNames,
   filterSidebarV2VisibleThreads,
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
@@ -207,8 +211,10 @@ import {
   filterSidebarProjectScopeItems,
   formatWorkingDurationLabel,
   firstValidTimestampMs,
+  groupSidebarThreadsByTag,
   hasUnseenCompletion,
   isSidebarNestedLinkClick,
+  isSidebarTagBoxOpen,
   isSidebarThreadWorking,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
@@ -223,6 +229,8 @@ import {
   type SidebarDropVerb,
   resolveSidebarThreadStatus,
   resolveThreadLastVisitedAt,
+  resolveSidebarTagBoxRows,
+  resolveThreadTagNameForSave,
   searchSidebarThreads,
   shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
@@ -235,12 +243,16 @@ import {
   sortPinnedThreadsForSidebar,
   sortThreadsForSidebar,
   sortWorkingThreadsBySend,
+  summarizeSidebarTagBoxStatus,
+  toggleSidebarTagBox,
   useThreadJumpHintVisibility,
   useRetainedValue,
   useSidebarRowSubscriptionLease,
   type SidebarListItem,
   type SidebarListMarker,
   type SidebarSection,
+  type SidebarTagBoxSection,
+  type SidebarTagBoxToggles,
 } from "./Sidebar.logic";
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
 import {
@@ -317,6 +329,16 @@ const SETTLED_TAIL_PAGE_COUNT = 25;
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
 const WORKING_SHELF_EXPANDED_KEY = "t3code:sidebar:working-expanded";
+const TAG_BOX_TOGGLES_KEY = "t3code:sidebar:tag-box-toggles";
+const TagBoxTogglesSchema = Schema.Struct({
+  closedActiveTagKeys: Schema.Array(Schema.String),
+  openSettledTagKeys: Schema.Array(Schema.String),
+});
+const DEFAULT_TAG_BOX_TOGGLES: SidebarTagBoxToggles = {
+  closedActiveTagKeys: [],
+  openSettledTagKeys: [],
+};
+const EMPTY_TAG_BOX_VISIBLE_COUNTS: ReadonlyMap<string, number> = new Map();
 
 // Working beta: when this client saw each thread leave the Working shelf.
 // Module scope keeps the inbox order across routes that unmount the sidebar.
@@ -841,6 +863,123 @@ function SidebarSectionHeader(props: {
   );
 }
 
+// The box floats on a shadow, but it is drawn in slices (header, then one
+// per row). Each slice clips its shadow at the edges it shares with its
+// neighbours so the slices read as one card, and the fill is opaque so no
+// slice's shadow shows through another.
+function sidebarTagBoxSurfaceClassName(slice: "top" | "middle" | "bottom" | "whole") {
+  return cn(
+    "border-sidebar-border bg-sidebar-control-surface shadow-md dark:shadow-black/50",
+    slice === "top" && "[clip-path:inset(-16px_-16px_0_-16px)]",
+    slice === "middle" && "[clip-path:inset(0_-16px)]",
+    slice === "bottom" && "[clip-path:inset(0_-16px_-16px_-16px)]",
+  );
+}
+
+// Each part of a tag box draws its own slice of the box. Parts below the
+// header pull up over the list's 1px gap (-mt-px, padded back down) so the
+// box has no seams; createSidebarSortingStrategy accounts for the overlap.
+function sidebarTagBoxPartClassName(part: "middle" | "last", variant: "card" | "slim") {
+  return cn(
+    "-mt-px mx-0.5 border-x px-1",
+    sidebarTagBoxSurfaceClassName(part === "last" ? "bottom" : "middle"),
+    variant === "card" ? "pt-0.75 pb-0.5" : "pt-px",
+    // The bottom margin is mirrored by SIDEBAR_TAG_BOX_BOTTOM_GAP_PX in the drag preview.
+    part === "last" && "mb-3 rounded-b-lg border-b pb-1",
+  );
+}
+
+// Box headers and "Show more" rows shift with the list during a drag like
+// the section markers, but resolveSidebarDropTarget never accepts them.
+function SortableSidebarTagBoxItem(props: { id: string; className: string; children: ReactNode }) {
+  const { setNodeRef, transform, transition } = useSortable({
+    id: props.id,
+    disabled: { draggable: true },
+    animateLayoutChanges: animateSidebarLayoutChanges,
+  });
+  return (
+    <li
+      ref={setNodeRef}
+      data-thread-selection-safe
+      className={cn("list-none", props.className)}
+      style={{
+        transform: CSS.Translate.toString(transform),
+        transition,
+        visibility: transform?.scaleY === 0 ? "hidden" : undefined,
+      }}
+    >
+      {props.children}
+    </li>
+  );
+}
+
+function SidebarTagBoxHeader(props: {
+  id: string;
+  displayName: string;
+  threadCount: number;
+  open: boolean;
+  /** A box with no rows below its header ends here. */
+  endsBox: boolean;
+  /** Only closed active boxes report; null hides the line. Dot colors match
+      the rows' own working and approval labels. */
+  summary: { readonly workingCount: number; readonly needsYouCount: number } | null;
+  onToggle: () => void;
+}) {
+  const summary =
+    props.summary !== null && props.summary.workingCount + props.summary.needsYouCount > 0
+      ? props.summary
+      : null;
+  return (
+    <SortableSidebarTagBoxItem id={props.id} className={cn("mx-0.5 pt-1", props.endsBox && "mb-3")}>
+      <div
+        className={cn(
+          "border-x border-t",
+          sidebarTagBoxSurfaceClassName(props.endsBox ? "whole" : "top"),
+          props.endsBox ? "rounded-lg border-b" : "rounded-t-lg",
+        )}
+      >
+        <button
+          type="button"
+          aria-expanded={props.open}
+          onClick={props.onToggle}
+          className="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-lg px-2 text-left text-xs font-medium text-sidebar-foreground/80 hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+        >
+          <ChevronRightIcon
+            aria-hidden
+            className={cn(
+              "size-3 shrink-0 text-sidebar-muted-foreground transition-transform",
+              props.open && "rotate-90",
+            )}
+          />
+          <span className="min-w-0 flex-1 truncate">{props.displayName}</span>
+          <span className="shrink-0 tabular-nums text-sidebar-muted-foreground">
+            {props.threadCount}
+          </span>
+        </button>
+        {summary ? (
+          <div className="-mt-1 flex items-center gap-1.5 pb-1.5 ps-6.5 pe-2 text-2xs text-sidebar-muted-foreground">
+            {summary.workingCount > 0 ? (
+              <span className="flex items-center gap-1">
+                <span aria-hidden className="size-1.5 rounded-full bg-info" />
+                {summary.workingCount} working
+              </span>
+            ) : null}
+            {summary.workingCount > 0 && summary.needsYouCount > 0 ? (
+              <span aria-hidden>·</span>
+            ) : null}
+            {summary.needsYouCount > 0 ? (
+              <span className="flex items-center gap-1">
+                <span aria-hidden className="size-1.5 rounded-full bg-warning" />
+                {summary.needsYouCount} needs you
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </SortableSidebarTagBoxItem>
+  );
+}
+
 // One unsent draft session the user has invested content in. Two lines,
 // nothing else: project name, then the typed prompt. All the draft's
 // settings (model, env mode, branch, worktree) still travel with it —
@@ -1138,6 +1277,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // the descriptor is not loaded. Pinning itself lives in the context menu.
   pinningSupported: boolean;
   isPinned: boolean;
+  /** The thread's tag, shown quietly on the branch line. Null or omitted hides it,
+      for rows where the tag is already obvious from where the row sits. */
+  tagLabel?: string | null | undefined;
+  /** Set on rows drawn inside a tag box: which slice of the box they draw. */
+  tagBoxPart?: "middle" | "last" | undefined;
   // Present on rows whose server supports every drop outcome: dnd-kit
   // sortable bag applied to the row root so the whole row drags (the
   // pointer sensor's distance constraint keeps plain clicks working).
@@ -1823,6 +1967,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         className={cn(
           // Matches the h-9 row so unrendered rows never shift the list when they paint.
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_36px]",
+          props.tagBoxPart && sidebarTagBoxPartClassName(props.tagBoxPart, "slim"),
           sortable?.isDragging && "relative z-20",
         )}
       >
@@ -1987,8 +2132,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       {...sortableRootProps}
       {...(fileDropHandlers ?? {})}
       className={cn(
-        // Matches the h-[4.875rem] content box; the py-0.5 padding is added on top.
-        "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
+        // Matches the h-[4.875rem] content box; the padding is added on top.
+        "list-none [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
+        props.tagBoxPart ? sidebarTagBoxPartClassName(props.tagBoxPart, "card") : "py-0.5",
         sortable?.isDragging && "relative z-20",
       )}
     >
@@ -2217,6 +2363,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               ) : (
                 <span className="flex-1" />
               )}
+              {props.tagLabel ? (
+                // Capped at half the line so a long tag never hides the branch
+                // entirely; it truncates before the provider icons give way. A
+                // translucent tint reads on every row surface (hover, active).
+                <span className="min-w-0 max-w-1/2 truncate rounded-sm bg-sidebar-foreground/8 px-1 text-sidebar-muted-foreground">
+                  {props.tagLabel}
+                </span>
+              ) : null}
               {terminalStatusIcon}
               {prBadge}
               {diff ? (
@@ -2471,6 +2625,7 @@ export default function Sidebar() {
     unpinThread,
     confirmAndUnpinThread,
     setThreadAutoSettle,
+    setThreadTag,
     reorderPinnedThread,
     reorderActiveThread,
     markThreadUnread,
@@ -2849,9 +3004,12 @@ export default function Sidebar() {
     const active: EnvironmentThreadShell[] = [];
     const working: EnvironmentThreadShell[] = [];
     // Working beta: only inbox threads fold away. Pins stay where the user
-    // put them, and snoozed or settled threads keep their shelves.
+    // put them, snoozed or settled threads keep their shelves, and tagged
+    // threads stay in their tag's box.
     const inbox = (thread: EnvironmentThreadShell) =>
-      workingShelfEnabled && isSidebarThreadWorking(thread) ? working : active;
+      workingShelfEnabled && thread.tag === null && isSidebarThreadWorking(thread)
+        ? working
+        : active;
     const snoozed: EnvironmentThreadShell[] = [];
     const settled: EnvironmentThreadShell[] = [];
     const draggable = new Set<string>();
@@ -2952,6 +3110,17 @@ export default function Sidebar() {
     threads,
     workingShelfEnabled,
   ]);
+  // Display spellings come from every visible chat, so a tag reads the same
+  // in its active box, its settled box, and the "Move to tag" menu.
+  const tagDisplayNames = useMemo(() => collectSidebarThreadTagNames(threads), [threads]);
+  const { boxes: activeTagBoxes, looseThreads: looseActiveThreads } = useMemo(
+    () => groupSidebarThreadsByTag(activeThreads, tagDisplayNames),
+    [activeThreads, tagDisplayNames],
+  );
+  const { boxes: settledTagBoxes, looseThreads: looseSettledThreads } = useMemo(
+    () => groupSidebarThreadsByTag(settledThreads, tagDisplayNames),
+    [settledThreads, tagDisplayNames],
+  );
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
@@ -3022,20 +3191,24 @@ export default function Sidebar() {
   // filter context changes so a scope/search flip never inherits a deep
   // page state.
   const [settledVisibleCount, setSettledVisibleCount] = useState(SETTLED_TAIL_INITIAL_COUNT);
+  const [settledTagBoxVisibleCounts, setSettledTagBoxVisibleCounts] = useState(
+    EMPTY_TAG_BOX_VISIBLE_COUNTS,
+  );
   const settledResetKey = projectScopeKey ?? "all";
   const lastSettledResetKeyRef = useRef(settledResetKey);
   if (lastSettledResetKeyRef.current !== settledResetKey) {
     lastSettledResetKeyRef.current = settledResetKey;
     setSettledVisibleCount(SETTLED_TAIL_INITIAL_COUNT);
+    setSettledTagBoxVisibleCounts(EMPTY_TAG_BOX_VISIBLE_COUNTS);
   }
   const visibleSettledThreads = useMemo(() => {
-    if (settledThreads.length <= settledVisibleCount) return settledThreads;
-    const visible = settledThreads.slice(0, settledVisibleCount);
+    if (looseSettledThreads.length <= settledVisibleCount) return looseSettledThreads;
+    const visible = looseSettledThreads.slice(0, settledVisibleCount);
     // The open thread must never hide under "Show more": navigating into a
     // deep settled thread (search, deep link) pulls its row into the visible
     // tail so the highlight and the un-settle affordance stay reachable.
     if (routeThreadKey !== null) {
-      const routeThread = settledThreads
+      const routeThread = looseSettledThreads
         .slice(settledVisibleCount)
         .find(
           (thread) =>
@@ -3044,8 +3217,8 @@ export default function Sidebar() {
       if (routeThread !== undefined) visible.push(routeThread);
     }
     return visible;
-  }, [routeThreadKey, settledThreads, settledVisibleCount]);
-  const hiddenSettledCount = settledThreads.length - visibleSettledThreads.length;
+  }, [looseSettledThreads, routeThreadKey, settledVisibleCount]);
+  const hiddenSettledCount = looseSettledThreads.length - visibleSettledThreads.length;
   const showMoreSettled = useCallback(
     () => setSettledVisibleCount((count) => count + SETTLED_TAIL_PAGE_COUNT),
     [],
@@ -3062,12 +3235,81 @@ export default function Sidebar() {
   const renderedSettledThreads = useMemo(() => {
     if (settledShelfExpanded) return visibleSettledThreads;
     if (routeThreadKey === null) return EMPTY_THREADS;
-    const routeThread = visibleSettledThreads.find(
+    // A collapsed shelf shows no boxes, so a tagged open thread is kept here
+    // as a plain row too.
+    const routeThread = settledThreads.find(
       (thread) =>
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === routeThreadKey,
     );
     return routeThread === undefined ? EMPTY_THREADS : [routeThread];
-  }, [routeThreadKey, settledShelfExpanded, visibleSettledThreads]);
+  }, [routeThreadKey, settledShelfExpanded, settledThreads, visibleSettledThreads]);
+
+  const [tagBoxToggles, setTagBoxToggles] = useLocalStorage(
+    TAG_BOX_TOGGLES_KEY,
+    DEFAULT_TAG_BOX_TOGGLES,
+    TagBoxTogglesSchema,
+  );
+  const toggleTagBox = useCallback(
+    (section: SidebarTagBoxSection, tagKey: string) =>
+      setTagBoxToggles((toggles) => toggleSidebarTagBox(toggles, section, tagKey)),
+    [setTagBoxToggles],
+  );
+  const showMoreInSettledTagBox = useCallback(
+    (tagKey: string) =>
+      setSettledTagBoxVisibleCounts((counts) =>
+        new Map(counts).set(
+          tagKey,
+          (counts.get(tagKey) ?? SETTLED_TAIL_INITIAL_COUNT) + SETTLED_TAIL_PAGE_COUNT,
+        ),
+      ),
+    [],
+  );
+  const renderedActiveTagBoxes = useMemo(
+    () =>
+      activeTagBoxes.map((box) => {
+        const open = isSidebarTagBoxOpen(tagBoxToggles, "active", box.tagKey);
+        return {
+          ...box,
+          open,
+          ...resolveSidebarTagBoxRows({
+            threads: box.threads,
+            open,
+            visibleCount: Number.POSITIVE_INFINITY,
+            routeThreadKey,
+          }),
+          summary: open ? null : summarizeSidebarTagBoxStatus(box.threads),
+        };
+      }),
+    [activeTagBoxes, routeThreadKey, tagBoxToggles],
+  );
+  const renderedSettledTagBoxes = useMemo(
+    () =>
+      settledShelfExpanded
+        ? settledTagBoxes.map((box) => {
+            const open = isSidebarTagBoxOpen(tagBoxToggles, "settled", box.tagKey);
+            return {
+              ...box,
+              open,
+              ...resolveSidebarTagBoxRows({
+                threads: box.threads,
+                open,
+                visibleCount:
+                  settledTagBoxVisibleCounts.get(box.tagKey) ?? SETTLED_TAIL_INITIAL_COUNT,
+                routeThreadKey,
+              }),
+              // Settled chats aren't working or waiting on anyone.
+              summary: null,
+            };
+          })
+        : [],
+    [
+      routeThreadKey,
+      settledShelfExpanded,
+      settledTagBoxVisibleCounts,
+      settledTagBoxes,
+      tagBoxToggles,
+    ],
+  );
 
   // The snoozed shelf is collapsed by default: out of the way, never gone.
   // Collapsed threads don't render (and so don't participate in jump
@@ -3120,16 +3362,20 @@ export default function Sidebar() {
   const orderedThreads = useMemo(
     () => [
       ...pinnedThreads,
-      ...activeThreads,
+      ...renderedActiveTagBoxes.flatMap((box) => box.rows),
+      ...looseActiveThreads,
       ...visibleWorkingThreads,
       ...visibleSnoozedThreads,
+      ...renderedSettledTagBoxes.flatMap((box) => box.rows),
       ...renderedSettledThreads,
     ],
     [
       pinnedThreads,
-      activeThreads,
+      renderedActiveTagBoxes,
+      looseActiveThreads,
       visibleWorkingThreads,
       visibleSnoozedThreads,
+      renderedSettledTagBoxes,
       renderedSettledThreads,
     ],
   );
@@ -3693,12 +3939,13 @@ export default function Sidebar() {
       ),
     [pinnedThreads],
   );
+  // Drops arrange only the loose inbox; tagged threads keep their box order.
   const activeKeys = useMemo(
     () =>
-      activeThreads.map((thread) =>
+      looseActiveThreads.map((thread) =>
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
       ),
-    [activeThreads],
+    [looseActiveThreads],
   );
   useEffect(() => {
     if (optimisticDrop === null) return;
@@ -3791,6 +4038,24 @@ export default function Sidebar() {
     },
     [pinThread],
   );
+  const attemptSetThreadTag = useCallback(
+    (threadRef: ScopedThreadRef, tagName: string | null) => {
+      void (async () => {
+        const result = await setThreadTag(threadRef, tagName);
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: tagName === null ? "Failed to remove tag" : "Failed to tag thread",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
+      })();
+    },
+    [setThreadTag],
+  );
   const attemptUnpin = useCallback(
     (threadRef: ScopedThreadRef) => {
       void (async () => {
@@ -3861,11 +4126,35 @@ export default function Sidebar() {
     ) {
       return [];
     }
+    const tagBoxItemsOf = (
+      boxes: readonly {
+        readonly tagKey: string;
+        readonly rows: readonly EnvironmentThreadShell[];
+        readonly hiddenCount: number;
+      }[],
+      section: SidebarTagBoxSection,
+    ) => {
+      const boxItems: SidebarListItem[] = [];
+      for (const box of boxes) {
+        boxItems.push({ kind: "tag-box-header", section, tagKey: box.tagKey });
+        for (const thread of box.rows) {
+          boxItems.push({
+            kind: "tag-box-thread",
+            key: scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+            section,
+            tagKey: box.tagKey,
+          });
+        }
+        if (box.hiddenCount > 0) boxItems.push({ kind: "tag-box-more", tagKey: box.tagKey });
+      }
+      return boxItems;
+    };
     const items: SidebarListItem[] = [{ kind: "marker", marker: "pinned-header" }];
     const pinnedRows = rowsOf(pinnedThreads, "pinned");
     items.push(...pinnedRows);
     items.push({ kind: "marker", marker: "pinned-divider" });
-    const activeRows = rowsOf(activeThreads, "active");
+    items.push(...tagBoxItemsOf(renderedActiveTagBoxes, "active"));
+    const activeRows = rowsOf(looseActiveThreads, "active");
     items.push({ kind: "marker", marker: "active-placeholder" });
     items.push(...activeRows);
     if (workingThreads.length > 0) {
@@ -3877,13 +4166,17 @@ export default function Sidebar() {
       items.push(...rowsOf(visibleSnoozedThreads, "snoozed"));
     }
     items.push({ kind: "marker", marker: "settled-header" });
+    items.push(...tagBoxItemsOf(renderedSettledTagBoxes, "settled"));
     const settledRows = rowsOf(renderedSettledThreads, "settled");
     items.push({ kind: "marker", marker: "settled-placeholder" });
     items.push(...settledRows);
     return items;
   }, [
-    activeThreads,
+    activeThreads.length,
+    looseActiveThreads,
     pinnedThreads,
+    renderedActiveTagBoxes,
+    renderedSettledTagBoxes,
     renderedSettledThreads,
     settledThreads.length,
     snoozedThreads.length,
@@ -3907,7 +4200,13 @@ export default function Sidebar() {
   const sidebarListOrderKey = useMemo(
     () =>
       sidebarListItems
-        .map((item) => (item.kind === "thread" ? `${item.key}:${item.section}` : item.marker))
+        .map((item) =>
+          item.kind === "thread" || item.kind === "tag-box-thread"
+            ? `${item.key}:${item.section}`
+            : item.kind === "marker"
+              ? item.marker
+              : sidebarListItemId(item),
+        )
         .join("\0"),
     [sidebarListItems],
   );
@@ -3945,11 +4244,15 @@ export default function Sidebar() {
     if (dragState === null || thread === undefined) return [];
     const key = (candidate: EnvironmentThreadShell) =>
       scopedThreadKey(scopeThreadRef(candidate.environmentId, candidate.id));
+    // A drop lands in the loose tail. A collapsed shelf renders only the open
+    // thread, tagged or not, so there every settled thread keeps its rank.
     return sortSettledThreads([
-      ...settledThreads.filter((candidate) => key(candidate) !== dragState.activeKey),
+      ...(settledShelfExpanded ? looseSettledThreads : settledThreads).filter(
+        (candidate) => key(candidate) !== dragState.activeKey,
+      ),
       applySidebarThreadDrop(thread, "settled", dragState.occurredAt),
     ]).map(key);
-  }, [dragState, settledThreads, threadByKey]);
+  }, [dragState, looseSettledThreads, settledShelfExpanded, settledThreads, threadByKey]);
   // Working beta: the inbox is time-ordered too, so the preview shows the
   // slot a drop will land in, not the slot under the pointer.
   const draggedActiveOrder = useMemo(() => {
@@ -3959,12 +4262,12 @@ export default function Sidebar() {
       scopedThreadKey(scopeThreadRef(candidate.environmentId, candidate.id));
     return sortInboxThreadsByReturn(
       [
-        ...activeThreads.filter((candidate) => key(candidate) !== dragState.activeKey),
+        ...looseActiveThreads.filter((candidate) => key(candidate) !== dragState.activeKey),
         applySidebarThreadDrop(thread, "active", dragState.occurredAt),
       ],
       inboxReturns.returnedAt,
     ).map(key);
-  }, [activeThreads, dragState, threadByKey, workingShelfEnabled]);
+  }, [dragState, looseActiveThreads, threadByKey, workingShelfEnabled]);
   const sidebarSortingStrategy = useMemo(
     () =>
       createSidebarSortingStrategy({
@@ -4650,6 +4953,9 @@ export default function Sidebar() {
         const supportsTitleRegeneration =
           serverConfigs.get(thread.environmentId)?.environment.capabilities
             .threadTitleRegeneration === true;
+        const supportsTags =
+          serverConfigs.get(thread.environmentId)?.environment.capabilities.threadTags === true;
+        const tagNames = supportsTags ? collectSidebarThreadTagNames(threads) : [];
         const isRegeneratingTitle = thread.titleRegeneration != null;
         const isSettled = settledThreadKeysRef.current.has(threadKey);
         const isSnoozed = snoozedThreadKeysRef.current.has(threadKey);
@@ -4687,12 +4993,15 @@ export default function Sidebar() {
               canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
               isRegeneratingTitle,
               isRunning: !threadRuntimeCanArchive(thread.runtime),
+              currentTag: thread.tag,
+              tagNames,
               supports: {
                 settlement: supportsSettlement,
                 autoSettleOptOut: supportsAutoSettleOptOut,
                 snooze: supportsSnooze,
                 pinning: supportsPinning,
                 titleRegeneration: supportsTitleRegeneration,
+                tags: supportsTags,
               },
               snoozePresets,
               sideBySide,
@@ -4708,6 +5017,15 @@ export default function Sidebar() {
               ? await requestCustomSnooze()
               : snoozePresets.find((candidate) => `snooze:${candidate.id}` === clicked.value);
           if (preset) attemptSnooze(threadRef, preset);
+          return;
+        }
+        if (clicked.value === "tag:new" || clicked.value.startsWith("tag:pick:")) {
+          const tagName =
+            clicked.value === "tag:new"
+              ? resolveThreadTagNameForSave((await requestNewTagName()) ?? "", tagNames)
+              : readPickedThreadTagName(clicked.value, tagNames);
+          if (tagName === null) return;
+          attemptSetThreadTag(threadRef, tagName);
           return;
         }
         switch (clicked.value) {
@@ -4770,6 +5088,9 @@ export default function Sidebar() {
             return;
           case "unpin":
             attemptUnpin(threadRef);
+            return;
+          case "untag":
+            attemptSetThreadTag(threadRef, null);
             return;
           case "auto-settle:enabled":
           case "auto-settle:disabled": {
@@ -5290,6 +5611,7 @@ export default function Sidebar() {
                       const renderThreadRowInner = (
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
+                        tagBoxPart: "middle" | "last" | undefined,
                         sortable?: SortableThreadRowBag,
                       ) => {
                         const threadKey = scopedThreadKey(
@@ -5331,6 +5653,9 @@ export default function Sidebar() {
                                 .threadPinning === true
                             }
                             isPinned={thread.pinnedAt != null}
+                            // Inside its box the box title already names the tag.
+                            tagLabel={tagBoxPart ? null : thread.tag}
+                            tagBoxPart={tagBoxPart}
                             sortable={sortable}
                             dropVerb={
                               dragState?.activeKey === threadKey
@@ -5410,6 +5735,7 @@ export default function Sidebar() {
                       const renderThreadRow = (
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
+                        tagBoxPart?: "middle" | "last",
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
@@ -5423,11 +5749,15 @@ export default function Sidebar() {
                             disabled={
                               renamingThreadKey === threadKey ||
                               section === "working" ||
+                              // Rows inside a tag box can't be dragged yet: the
+                              // drop math only knows the loose list. Tagged rows
+                              // elsewhere (pinned, snoozed) drag as before.
+                              tagBoxPart !== undefined ||
                               !draggableThreadKeys.has(threadKey) ||
                               optimisticDrop !== null
                             }
                           >
-                            {(bag) => renderThreadRowInner(thread, section, bag)}
+                            {(bag) => renderThreadRowInner(thread, section, tagBoxPart, bag)}
                           </SortableThreadRow>
                         );
                       };
@@ -5443,9 +5773,70 @@ export default function Sidebar() {
                           onDraftContextMenu={handleDraftContextMenu}
                         />,
                       ];
-                      for (const item of sidebarListItems) {
+                      for (const [index, item] of sidebarListItems.entries()) {
                         if (item.kind === "thread") {
                           items.push(renderThreadRow(threadByKey.get(item.key)!, item.section));
+                          continue;
+                        }
+                        if (item.kind !== "marker") {
+                          // A box's rows and "Show more" follow its header, so
+                          // anything else after an item closes the box.
+                          const nextKind = sidebarListItems[index + 1]?.kind;
+                          const endsBox =
+                            nextKind !== "tag-box-thread" && nextKind !== "tag-box-more";
+                          if (item.kind === "tag-box-thread") {
+                            items.push(
+                              renderThreadRow(
+                                threadByKey.get(item.key)!,
+                                item.section,
+                                endsBox ? "last" : "middle",
+                              ),
+                            );
+                            continue;
+                          }
+                          if (item.kind === "tag-box-more") {
+                            const box = renderedSettledTagBoxes.find(
+                              (candidate) => candidate.tagKey === item.tagKey,
+                            );
+                            items.push(
+                              <SortableSidebarTagBoxItem
+                                key={sidebarListItemId(item)}
+                                id={sidebarListItemId(item)}
+                                className={sidebarTagBoxPartClassName("last", "slim")}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => showMoreInSettledTagBox(item.tagKey)}
+                                  className="flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-left text-sm text-sidebar-muted-foreground/55 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                                >
+                                  <PlusIcon aria-hidden className="size-4 shrink-0" />
+                                  {`Show ${Math.min(box?.hiddenCount ?? 0, SETTLED_TAIL_PAGE_COUNT)} more`}
+                                </button>
+                              </SortableSidebarTagBoxItem>,
+                            );
+                            continue;
+                          }
+                          const box =
+                            item.section === "active"
+                              ? renderedActiveTagBoxes.find(
+                                  (candidate) => candidate.tagKey === item.tagKey,
+                                )
+                              : renderedSettledTagBoxes.find(
+                                  (candidate) => candidate.tagKey === item.tagKey,
+                                );
+                          if (box === undefined) continue;
+                          items.push(
+                            <SidebarTagBoxHeader
+                              key={sidebarListItemId(item)}
+                              id={sidebarListItemId(item)}
+                              displayName={box.displayName}
+                              threadCount={box.threads.length}
+                              open={box.open}
+                              endsBox={endsBox}
+                              summary={box.summary}
+                              onToggle={() => toggleTagBox(item.section, item.tagKey)}
+                            />,
+                          );
                           continue;
                         }
                         switch (item.marker) {
@@ -5479,9 +5870,9 @@ export default function Sidebar() {
                                 label="Active"
                                 showHint={
                                   from !== null &&
-                                  (activeThreads.length === 0 ||
+                                  (looseActiveThreads.length === 0 ||
                                     (from === "active" &&
-                                      activeThreads.length === 1 &&
+                                      looseActiveThreads.length === 1 &&
                                       dragTargetSection !== null &&
                                       dragTargetSection !== "active"))
                                 }
