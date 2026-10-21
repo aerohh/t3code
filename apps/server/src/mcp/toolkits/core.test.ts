@@ -516,6 +516,51 @@ it.effect("a read-only client reads threads and is refused every write before it
 );
 const dispatched: Array<string> = [];
 
+const dispatchedTagCommands: Array<unknown> = [];
+it.effect("tags and untags a thread, and refuses tag without a name", () =>
+  Effect.gen(function* () {
+    const server = yield* McpServer.McpServer;
+    const organize = (args: Record<string, unknown>) =>
+      server
+        .callTool({ name: "t3_thread_organize", arguments: args })
+        .pipe(
+          Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+
+    const missingName = yield* organize({ action: "tag" });
+    expect(declaredFailure(missingName)).toMatchObject({ code: "invalid_request" });
+    expect(dispatchedTagCommands).toEqual([]);
+
+    const tagged = yield* organize({ action: "tag", tag: "  Billing  " });
+    expect(tagged.structuredContent).toMatchObject({ sequence: 7 });
+    const untagged = yield* organize({ action: "untag" });
+    expect(untagged.structuredContent).toMatchObject({ sequence: 7 });
+    expect(dispatchedTagCommands).toMatchObject([
+      { type: "thread.tag.set", threadId, tag: "Billing" },
+      { type: "thread.tag.set", threadId, tag: null },
+    ]);
+  }).pipe(
+    Effect.provide(
+      layerThreadToolkit.pipe(
+        Layer.provideMerge(McpServer.McpServer.layer),
+        Layer.provide(NodeCrypto.layer),
+        Layer.provide(
+          Layer.mock(ThreadManagement.ThreadManagementService)({
+            getThreadShell: (id) => Effect.succeed(McpToolAccessTestkit.liveThreadShell(id)),
+            getProjectThreadRecords: () => Effect.succeed({ thread: { id: threadId } } as never),
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatchedTagCommands.push(command);
+                return { sequence: 7, storedEvents: [] };
+              }),
+          }),
+        ),
+      ),
+    ),
+  ),
+);
+
 it.effect("refuses act-as-caller tools to a client caller", () =>
   Effect.gen(function* () {
     const server = yield* McpServer.McpServer;

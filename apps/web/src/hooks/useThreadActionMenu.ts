@@ -1,5 +1,6 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { requestCustomSnooze } from "../components/CustomSnoozeDialog";
+import { requestNewTagName } from "../components/NewTagDialog";
 import {
   type AtomCommandResult,
   isAtomCommandInterrupted,
@@ -16,7 +17,12 @@ import { useRouter } from "@tanstack/react-router";
 
 import { resolveSnoozePresets } from "../components/Sidebar.snooze";
 import {
+  collectSidebarThreadTagNames,
+  resolveThreadTagNameForSave,
+} from "../components/Sidebar.logic";
+import {
   buildThreadActionMenuItems,
+  readPickedThreadTagName,
   threadActionRequiresOperate,
   type ThreadActionMenuId,
 } from "../components/threadActionMenu.logic";
@@ -29,8 +35,10 @@ import {
   readEnvironmentSupportsPinning,
   readEnvironmentSupportsSettlement,
   readEnvironmentSupportsSnooze,
+  readEnvironmentSupportsTags,
   readEnvironmentSupportsTitleRegeneration,
   readThreadShell,
+  readThreadShells,
   useProjects,
 } from "../state/entities";
 import { usePrimaryEnvironmentId } from "../state/environments";
@@ -81,6 +89,7 @@ export function useThreadActionMenu(input: {
     pinThread,
     confirmAndUnpinThread,
     setThreadAutoSettle,
+    setThreadTag,
     archiveThread,
     deleteThread,
     markThreadUnread,
@@ -126,7 +135,9 @@ export function useThreadActionMenu(input: {
         snooze: readEnvironmentSupportsSnooze(threadRef.environmentId),
         pinning: readEnvironmentSupportsPinning(threadRef.environmentId),
         titleRegeneration: readEnvironmentSupportsTitleRegeneration(threadRef.environmentId),
+        tags: readEnvironmentSupportsTags(threadRef.environmentId),
       };
+      const tagNames = supports.tags ? collectSidebarThreadTagNames(readThreadShells()) : [];
       const isRegeneratingTitle = thread.titleRegeneration != null;
       const snoozePresets = resolveSnoozePresets(now, timestampFormat);
       const sideBySide = readSideBySideMenuOption(threadRef, threadRef);
@@ -141,6 +152,8 @@ export function useThreadActionMenu(input: {
         canSnoozeNow: canSnooze(thread, { now: now.toISOString() }),
         isRegeneratingTitle,
         isRunning: !threadRuntimeCanArchive(thread.runtime),
+        currentTag: thread.tag,
+        tagNames,
         supports,
         snoozePresets,
         sideBySide,
@@ -179,6 +192,15 @@ export function useThreadActionMenu(input: {
           failureToast(title, squashAtomCommandFailure(result));
         }
       };
+      if (action === "tag:new" || action.startsWith("tag:pick:")) {
+        const tagName =
+          action === "tag:new"
+            ? resolveThreadTagNameForSave((await requestNewTagName()) ?? "", tagNames)
+            : readPickedThreadTagName(action, tagNames);
+        if (tagName === null) return;
+        await reportFailure("Failed to tag thread", () => setThreadTag(threadRef, tagName));
+        return;
+      }
       switch (action) {
         case "open-beside":
         case "close-side-by-side":
@@ -234,6 +256,9 @@ export function useThreadActionMenu(input: {
           await reportFailure("Failed to update auto-settle", () =>
             setThreadAutoSettle(threadRef, action === "auto-settle:enabled"),
           );
+          return;
+        case "untag":
+          await reportFailure("Failed to remove tag", () => setThreadTag(threadRef, null));
           return;
         case "rename":
           onStartRename();
