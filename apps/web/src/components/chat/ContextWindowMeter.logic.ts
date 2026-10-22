@@ -1,4 +1,10 @@
-import type { ModelSelection, ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
+import type {
+  ModelSelection,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ServerProvider,
+  ServerProviderUsageWindow,
+} from "@t3tools/contracts";
 import {
   CLAUDE_RESUME_COMPACTION_NEVER_ANSWER,
   COMPACTION_SUGGESTION_MIN_TOKENS,
@@ -12,6 +18,9 @@ import { getTriggerDisplayModelName, type ModelEsque } from "./providerIconUtils
 
 // Used when the provider did not report its cache TTL: Claude's 1h cache plus slack.
 const CLAUDE_RESUME_COMPACTION_FALLBACK_MS = 70 * 60_000;
+
+const FIVE_HOUR_WINDOW_MINUTES = 5 * 60;
+const FIVE_HOUR_RING_MIN_USED_PERCENT = 50;
 
 export function providerSupportsManualCompaction(
   provider: ProviderInstanceEntry | null | undefined,
@@ -131,4 +140,28 @@ export function formatContextWindowCost(cost: {
 }): string {
   const fractionDigits = Math.abs(cost.amount) > 0 && Math.abs(cost.amount) < 0.01 ? 4 : 2;
   return `${cost.currency} ${cost.amount.toFixed(fractionDigits)}`;
+}
+
+export function selectFiveHourUsageWindow(
+  provider: ServerProvider | null,
+  now: number,
+): ServerProviderUsageWindow | null {
+  const fullest = (provider?.usageLimits?.windows ?? [])
+    .filter(
+      (window) =>
+        window.kind === "session" && window.windowDurationMins === FIVE_HOUR_WINDOW_MINUTES,
+    )
+    // The snapshot is only refreshed by a turn or a probe, so a window whose reset time
+    // has passed still carries the old percentage even though the limit is already fresh.
+    .filter((window) => window.resetsAt === undefined || Date.parse(window.resetsAt) > now)
+    // Antigravity reports one 5-hour window per model family; the fullest one runs out first.
+    .reduce<ServerProviderUsageWindow | null>(
+      (fullestSoFar, window) =>
+        fullestSoFar === null || window.usedPercent > fullestSoFar.usedPercent
+          ? window
+          : fullestSoFar,
+      null,
+    );
+  if (fullest === null || fullest.usedPercent < FIVE_HOUR_RING_MIN_USED_PERCENT) return null;
+  return fullest;
 }

@@ -3,6 +3,7 @@ import type {
   ProviderInstanceId,
   ProviderInteractionMode,
   RuntimeMode,
+  ServerProviderUsageWindow,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { BotIcon, PencilRulerIcon } from "lucide-react";
@@ -151,6 +152,7 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   compact: boolean;
   canOperateThread: boolean;
   activeContextWindow: ContextWindowSnapshot | null;
+  fiveHourUsageWindow: ServerProviderUsageWindow | null;
   reserveContextWindowMeter: boolean;
   activeThreadModelDisplayName: string | null;
   isPreparingWorktree: boolean;
@@ -190,9 +192,10 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
 }) {
   return (
     <>
-      {props.activeContextWindow ? (
+      {props.activeContextWindow || props.fiveHourUsageWindow ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}
+          fiveHourWindow={props.fiveHourUsageWindow}
           modelDisplayName={props.activeThreadModelDisplayName}
           onCompact={props.onCompactContext}
           compactDisabled={props.compactDisabled}

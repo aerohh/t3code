@@ -294,6 +294,7 @@ import {
 import {
   providerSupportsManualCompaction,
   resolveContextWindowModelDisplayName,
+  selectFiveHourUsageWindow,
   shouldReserveContextWindowMeter,
 } from "./ContextWindowMeter.logic";
 import {
@@ -6336,6 +6337,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     canOperateThread={canOperateThread}
                     activeContextWindow={
                       settings.contextWindowMeterEnabled ? activeContextWindow : null
+                    }
+                    fiveHourUsageWindow={
+                      settings.contextWindowMeterEnabled
+                        ? selectFiveHourUsageWindow(selectedProviderStatus, Date.now())
+                        : null
                     }
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
