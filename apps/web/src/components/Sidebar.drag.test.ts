@@ -26,6 +26,12 @@ const divider = marker("pinned-divider");
 const settledHeader = marker("settled-header");
 const stationary = { x: 0, y: 0, scaleX: 1, scaleY: 1 };
 
+// Done and In progress rows sit in a box below their header, like tag box rows.
+const isShelfRow = (item: SidebarListItem | undefined) =>
+  item?.kind === "thread" && (item.section === "done" || item.section === "working");
+const isShelfHeader = (item: SidebarListItem) =>
+  item.kind === "marker" && (item.marker === "done-header" || item.marker === "working-header");
+
 function layout(
   items: readonly SidebarListItem[],
   active: string,
@@ -36,7 +42,9 @@ function layout(
   let top = 100;
   const rects = items.map((item, index) => {
     // Box parts below a header pull up over the 1px list gap, as in the DOM.
-    if (item.kind === "tag-box-thread" || item.kind === "tag-box-more") top -= 1;
+    if (item.kind === "tag-box-thread" || item.kind === "tag-box-more" || isShelfRow(item)) {
+      top -= 1;
+    }
     const height =
       item.kind === "thread" || item.kind === "tag-box-thread"
         ? (item.section === "pinned" || item.section === "active" ? cardHeight : 36) * scale
@@ -49,11 +57,13 @@ function layout(
     top += height + 1;
     // A box's last part carries a 12px bottom margin, as in the DOM.
     const next = items[index + 1];
+    const isBoxPart =
+      (item.kind !== "thread" && item.kind !== "marker") || isShelfRow(item) || isShelfHeader(item);
     if (
-      item.kind !== "thread" &&
-      item.kind !== "marker" &&
+      isBoxPart &&
       next?.kind !== "tag-box-thread" &&
-      next?.kind !== "tag-box-more"
+      next?.kind !== "tag-box-more" &&
+      !isShelfRow(next)
     ) {
       top += 12;
     }
@@ -524,24 +534,29 @@ describe("sidebar drag projection", () => {
     expect(result.get(sidebarMarkerId("settled-placeholder"))).toEqual({ ...stationary, y: -83 });
   });
 
-  it("previews a time-ordered inbox drop at its time slot, above the Working shelf", () => {
+  it("previews a time-ordered inbox drop at its time slot, below the Done and In progress shelves", () => {
     const items = [
       pinnedHeader,
       thread("p", "pinned"),
+      marker("done-header"),
+      thread("d", "done"),
+      marker("working-header"),
+      thread("w", "working"),
       divider,
       thread("a1", "active"),
       thread("a2", "active"),
-      marker("working-header"),
-      thread("w", "working"),
       settledHeader,
       marker("settled-placeholder"),
     ];
     const input = { items, settledOrder: [], settledExpanded: false };
-    expect(preview(input, "p", "a1").get("a2")?.y).toBe(0);
+    const byPosition = preview(input, "p", "a1");
+    expect(byPosition.get("a2")?.y).toBe(0);
+    expect(byPosition.get("d")?.y).toBe(-83);
+    expect(byPosition.get("w")?.y).toBe(-83);
     const byTime = preview({ ...input, activeOrder: ["a1", "a2", "p"] }, "p", "a1");
     expect(byTime.get("a2")?.y).toBe(-83);
-    expect(byTime.get(sidebarMarkerId("working-header"))).toEqual(stationary);
-    expect(byTime.get("w")).toEqual(stationary);
+    expect(byTime.get(sidebarMarkerId("working-header"))?.y).toBe(-83);
+    expect(byTime.get("w")?.y).toBe(-83);
   });
 
   it("updates the projection when the target or measured geometry changes", () => {

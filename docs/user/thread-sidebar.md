@@ -133,19 +133,22 @@ rename a thread, regenerate its title, or link and unlink a pull request. These 
 appear on web, desktop, and mobile without requiring the originating browser to remain
 open.
 
-### Fold working threads (beta)
+### Done and In progress (beta)
 
-Threads that are working or waiting on work they will resume from move into a collapsed
-**Working** section below the active list.
-That includes subagents, watched pull requests, and background commands or monitors the agent
-says it is waiting on. A dev server or other process an agent leaves running does not keep a thread
-there. A thread returns to the top of the active list when it finishes, fails, or needs an approval or
-answer. The Working section lists the thread you last sent work to first. Pinned threads stay in
-the pinned section.
+On web and desktop, **Settings → General → Done and In progress sections (beta)** shows two
+sections at the top of the sidebar, below pinned threads. It is on by default. **Done** lists threads that
+finished since you last opened them; opening one moves it back to its usual place. **In
+progress** lists threads that are working or monitoring. Both keep each project's threads
+together, with the project that has the newest thread first. A tagged thread leaves its folder while it is in either section, and the folder shows how
+many of its threads are there. A thread that fails or needs an approval or answer stays in its
+folder or the active list. Pinned threads stay in the pinned section. Each device keeps its own choice.
 
-This is on by default. Turn it off with **Settings → General → Working section** on web and desktop,
-or **Settings → General → Working section** on iOS and Android. Each device keeps its own
-choice.
+A section or tag folder only gets its own box once it holds two or more threads. A single done or in-progress
+thread still shows at the top as an ordinary row, and a tag with one thread shows it as an ordinary row in its usual place. A
+folder counts the threads that moved up to Done or In progress.
+
+On iOS and Android, **Settings → General → Working section** instead moves threads that are working
+or waiting on work they will resume from into a collapsed **Working** section below the active list.
 
 While this is on, the active list is ordered by when each thread last came back to you, so you
 cannot drag or move threads within it. Your saved order returns when you turn it off.

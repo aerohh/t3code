@@ -44,6 +44,7 @@ import {
   PinOffIcon,
   ShieldQuestionIcon,
   SquarePenIcon,
+  TagIcon,
   TerminalIcon,
   Undo2Icon,
   UserRoundIcon,
@@ -69,7 +70,7 @@ import { useNowSecond } from "../../hooks/useNowSecond";
 import { vcsEnvironment } from "../../state/vcs";
 import { useEnvironmentQuery } from "../../state/query";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
-import { formatRelativeTimeLabel, parseTimestampDate } from "../../timestampFormat";
+import { formatRelativeTimeLabel } from "../../timestampFormat";
 import type { SidebarThreadSummary } from "../../types";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
@@ -78,6 +79,7 @@ import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import {
   animateSidebarLayoutChanges,
   hasUnseenCompletion,
+  isSidebarThreadWoke,
   resolveSidebarRowAccessibility,
   type SidebarDropVerb,
   resolveSidebarThreadStatus,
@@ -282,6 +284,12 @@ function SidebarThreadTooltip({
             <div className="min-w-0 truncate text-foreground/75">{projectDisplayName}</div>
           </div>
         ) : null}
+        {thread.tag ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <TagIcon aria-hidden className="size-3 shrink-0 stroke-muted-foreground" />
+            <div className="min-w-0 truncate text-foreground/75">{thread.tag}</div>
+          </div>
+        ) : null}
         {environmentLabel ? (
           <div className="flex min-w-0 items-center gap-2">
             <EnvironmentMachineIcon
@@ -437,28 +445,27 @@ export const draftPenClassName = "size-3 shrink-0 text-warning-foreground";
 // re-renders every row and marker on each sidebar update.
 export const SIDEBAR_SORTABLE_DRAG_DISABLED = { draggable: true } as const;
 
-// The box floats on a shadow, but it is drawn in slices (header, then one
-// per row). Each slice clips its shadow at the edges it shares with its
-// neighbours so the slices read as one card, and the fill is opaque so no
-// slice's shadow shows through another. The fill repeats the sidebar's own
-// colour and grain: any other surface lands between the sidebar and the row
-// hover/selected colours in dark themes and reads as a hole, not a card.
-// A brighter top edge does the lifting where a dark shadow can't show.
+// The box is drawn in slices (header, then one per row). The fill repeats
+// the sidebar's own colour and grain: any other surface lands between the
+// sidebar and the row hover/selected colours in dark themes and reads as a
+// hole, not a card. A brighter top edge marks where the box starts.
 export function sidebarTagBoxSurfaceClassName(slice: "top" | "middle" | "bottom" | "whole") {
   const hasTopEdge = slice === "top" || slice === "whole";
   return cn(
-    "border-sidebar-foreground/8 bg-sidebar surface-grain shadow-lg dark:shadow-black/60",
-    hasTopEdge && "border-t-sidebar-foreground/16 dark:inset-shadow-2xs dark:inset-shadow-white/7",
-    slice === "top" && "[clip-path:inset(-24px_-24px_0_-24px)]",
-    slice === "middle" && "[clip-path:inset(0_-24px)]",
-    slice === "bottom" && "[clip-path:inset(0_-24px_-24px_-24px)]",
+    "border-sidebar-foreground/8 bg-sidebar surface-grain",
+    hasTopEdge && "border-t-sidebar-foreground/11 dark:inset-shadow-2xs dark:inset-shadow-white/4",
   );
 }
 
-// Each part of a tag box draws its own slice of the box. Parts below the
-// header pull up over the list's 1px gap (-mt-px, padded back down) so the
-// box has no seams; createSidebarSortingStrategy accounts for the overlap.
-export function sidebarTagBoxPartClassName(part: "middle" | "last", variant: "card" | "slim") {
+// Each tag box part draws its slice and pulls up over the list's 1px gap (-mt-px, padded
+// back) so the box has no seams; createSidebarSortingStrategy accounts for the overlap.
+// "alone" is a lone Done or In progress chat: a plain row that keeps a box's overlap and
+// bottom gap, so the drag preview's box math still fits it.
+export function sidebarTagBoxPartClassName(
+  part: "middle" | "last" | "alone",
+  variant: "card" | "slim",
+) {
+  if (part === "alone") return "-mt-px mb-3 py-0.5";
   return cn(
     "-mt-px mx-0.5 border-x px-1",
     sidebarTagBoxSurfaceClassName(part === "last" ? "bottom" : "middle"),
@@ -551,11 +558,8 @@ type SidebarThreadRowProps = {
   snoozeSupported: boolean;
   pinningSupported: boolean;
   isPinned: boolean;
-  /** The thread's tag, shown quietly on the branch line. Null or omitted hides it,
-      for rows where the tag is already obvious from where the row sits. */
-  tagLabel?: string | null | undefined;
   /** Set on rows drawn inside a tag box: which slice of the box they draw. */
-  tagBoxPart?: "middle" | "last" | undefined;
+  tagBoxPart?: "middle" | "last" | "alone" | undefined;
   sortable?: SortableThreadRowBag | undefined;
   dropVerb: SidebarDropVerb | null;
   dragOverPinned: boolean;
@@ -725,12 +729,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
 
   const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
   const status = resolveSidebarThreadStatus(thread);
-  const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
-  const wokeAtDate = props.wokeAt === null ? null : parseTimestampDate(props.wokeAt);
-  const isWoke =
-    wokeAtDate !== null &&
-    (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
-    thread.settledOverride !== "settled";
+  const isWoke = isSidebarThreadWoke({
+    wokeAt: props.wokeAt,
+    lastVisitedAt,
+    settledOverride: thread.settledOverride,
+  });
   const shouldRecede = shouldRecedeSidebarThread({
     status,
     isUnread,
@@ -1310,8 +1313,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     prBadge === null &&
     diff === null &&
     !isRemote &&
-    runningTerminalIds.length === 0 &&
-    !props.tagLabel;
+    runningTerminalIds.length === 0;
 
   return (
     <li
@@ -1545,14 +1547,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 ) : (
                   <span className="flex-1" />
                 )}
-                {props.tagLabel ? (
-                  // Capped at half the line so a long tag never hides the branch
-                  // entirely; it truncates before the provider icons give way. A
-                  // translucent tint reads on every row surface (hover, active).
-                  <span className="min-w-0 max-w-1/2 truncate rounded-sm bg-sidebar-foreground/8 px-1 text-sidebar-muted-foreground">
-                    {props.tagLabel}
-                  </span>
-                ) : null}
                 {terminalStatusIcon}
                 {prBadge}
                 {diff ? (

@@ -407,9 +407,11 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "working-shelf",
-    title: "Working section",
+    title: "Done and In progress sections (beta)",
     to: "/settings/general",
-    searchTerms: ["hide fold running monitoring threads inbox sidebar shelf"],
+    searchTerms: [
+      "working section hide fold running monitoring finished unread threads inbox sidebar shelf folders",
+    ],
   },
   {
     id: "guest-links",
