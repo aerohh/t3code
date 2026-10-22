@@ -5,6 +5,8 @@ import {
   hasAvailableCompactionProvider,
   hasDismissedResumeCompaction,
   resolveContextWindowModelDisplayName,
+  fiveHourWindowShowsRing,
+  selectFiveHourUsageWindow,
   shouldReserveContextWindowMeter,
 } from "./ContextWindowMeter.logic";
 
@@ -155,5 +157,71 @@ describe("shouldReserveContextWindowMeter", () => {
         providerReportsContextWindow: null,
       }),
     ).toBe(true);
+  });
+});
+
+describe("selectFiveHourUsageWindow", () => {
+  const now = Date.parse("2026-10-22T12:00:00.000Z");
+  const withWindows = (windows: NonNullable<ServerProvider["usageLimits"]>["windows"]) => ({
+    ...claudeProvider({ instanceId: "claudeAgent", continuationGroupKey: "claude:home" }),
+    usageLimits: { checkedAt: "2026-10-22T11:00:00.000Z", windows },
+  });
+
+  it("picks the fullest 5-hour window and ignores weekly limits", () => {
+    const provider = withWindows([
+      {
+        id: "seven_day",
+        kind: "weekly",
+        label: "Weekly",
+        usedPercent: 95,
+        windowDurationMins: 7 * 24 * 60,
+      },
+      {
+        id: "gemini-5h",
+        kind: "session",
+        label: "Gemini · 5-hour",
+        usedPercent: 20,
+        resetsAt: "2026-10-22T14:00:00.000Z",
+        windowDurationMins: 300,
+      },
+      {
+        id: "3p-5h",
+        kind: "session",
+        label: "Claude & GPT · 5-hour",
+        usedPercent: 60,
+        resetsAt: "2026-10-22T14:00:00.000Z",
+        windowDurationMins: 300,
+      },
+    ]);
+
+    expect(selectFiveHourUsageWindow(provider, now)?.id).toBe("3p-5h");
+  });
+
+  it("keeps the window for the popup at any usage, but drops it once the limit resets", () => {
+    const fiveHourWindow = (usedPercent: number, resetsAt: string) => ({
+      id: "five_hour",
+      kind: "session" as const,
+      label: "Session",
+      usedPercent,
+      resetsAt,
+      windowDurationMins: 300,
+    });
+
+    const lightlyUsed = selectFiveHourUsageWindow(
+      withWindows([fiveHourWindow(10, "2026-10-22T14:00:00.000Z")]),
+      now,
+    );
+    expect(lightlyUsed?.usedPercent).toBe(10);
+    expect(fiveHourWindowShowsRing(lightlyUsed)).toBe(false);
+
+    const halfUsed = selectFiveHourUsageWindow(
+      withWindows([fiveHourWindow(50, "2026-10-22T14:00:00.000Z")]),
+      now,
+    );
+    expect(fiveHourWindowShowsRing(halfUsed)).toBe(true);
+
+    expect(
+      selectFiveHourUsageWindow(withWindows([fiveHourWindow(93, "2026-10-22T11:30:00.000Z")]), now),
+    ).toBeNull();
   });
 });

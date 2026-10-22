@@ -3,11 +3,13 @@ import type {
   ProviderInstanceId,
   ProviderInteractionMode,
   RuntimeMode,
+  ServerProvider,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { BotIcon, PencilRulerIcon } from "lucide-react";
 import { type ComponentProps, memo, useId, useRef, useState } from "react";
 
+import { useNowMinute } from "../../hooks/useNowMinute";
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
@@ -16,6 +18,7 @@ import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
 import { focusRequestedPermission, useComposerMenuProps } from "./composerEventScope";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
+import { fiveHourWindowShowsRing, selectFiveHourUsageWindow } from "./ContextWindowMeter.logic";
 import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 import { runtimeModeConfig } from "./runtimeModeConfig";
@@ -245,6 +248,7 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   compact: boolean;
   canOperateThread: boolean;
   activeContextWindow: ContextWindowSnapshot | null;
+  fiveHourUsageProvider: ServerProvider | null;
   reserveContextWindowMeter: boolean;
   activeThreadModelDisplayName: string | null;
   isPreparingWorktree: boolean;
@@ -281,11 +285,18 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
 }) {
+  // Read on the minute so a window drops once its reset time passes, without waiting for a turn.
+  const nowMinute = useNowMinute();
+  const fiveHourUsageWindow = selectFiveHourUsageWindow(
+    props.fiveHourUsageProvider,
+    Date.parse(`${nowMinute}:00.000Z`),
+  );
   return (
     <>
-      {props.activeContextWindow ? (
+      {props.activeContextWindow || fiveHourWindowShowsRing(fiveHourUsageWindow) ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}
+          fiveHourWindow={fiveHourUsageWindow}
           modelDisplayName={props.activeThreadModelDisplayName}
           onCompact={props.onCompactContext}
           compactDisabled={props.compactDisabled}
