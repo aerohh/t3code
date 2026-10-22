@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  htmlRenderFrameHeight,
   injectHtmlRenderBootstrap,
   readHtmlRenderImageRequest,
   readHtmlRenderLinkRequest,
@@ -130,5 +131,19 @@ describe("htmlRenderFromToolItem", () => {
     ] as const) {
       expect(htmlRenderFromToolItem({ toolName, output })).toEqual(reference);
     }
+  });
+});
+
+describe("htmlRenderFrameHeight", () => {
+  const measured = { ...reference, heights: [[728, 1403]] as const };
+
+  it("caps the frame at the agent's height when it is below the page's", () => {
+    expect(htmlRenderFrameHeight({ ...measured, height: 600 }, 728, 1415)).toBe(600);
+    expect(htmlRenderFrameHeight(reference, 728, 900)).toBe(420);
+  });
+
+  it("fits the live page when the agent asked for the page's full height", () => {
+    expect(htmlRenderFrameHeight({ ...measured, height: 1403 }, 728, 1415)).toBe(1415);
+    expect(htmlRenderFrameHeight({ ...measured, height: 1403 }, 728, 5000)).toBe(5000);
   });
 });
