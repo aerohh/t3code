@@ -13,17 +13,25 @@ const stationary = { x: 0, y: 0, scaleX: 1, scaleY: 1 };
 const hidden = { ...stationary, scaleY: 0 };
 type ThreadItem = Extract<SidebarListItem, { kind: "thread" }>;
 type Layout = Parameters<SortingStrategy>[0];
-const isShelfHeader = (item: SidebarListItem | undefined) =>
-  item?.kind === "marker" &&
-  (item.marker === "working-header" ||
-    item.marker === "snoozed-header" ||
-    item.marker === "settled-header");
-// The parts of a tag box below its header pull up over the list's 1px gap so
-// the box has no seams, so the stack must not count that gap.
+// The Done and In progress shelves sit at the top, drawn as boxes like the
+// tag folders; only Snoozed and Settled are pushed to the bottom of the list
+// by the free space above them.
+const isBottomShelfHeader = (item: SidebarListItem | undefined) =>
+  item?.kind === "marker" && (item.marker === "snoozed-header" || item.marker === "settled-header");
+const isCardSection = (section: SidebarSection) =>
+  section === "pinned" || section === "done" || section === "working" || section === "active";
+const isTopShelfRow = (item: SidebarListItem) =>
+  item.kind === "thread" && (item.section === "done" || item.section === "working");
+// The parts of a box below its header pull up over the list's 1px gap so the
+// box has no seams, so the stack must not count that gap.
 const overlapsListGapAbove = (item: SidebarListItem) =>
-  item.kind === "tag-box-thread" || item.kind === "tag-box-more";
+  item.kind === "tag-box-thread" || item.kind === "tag-box-more" || isTopShelfRow(item);
 const isTagBoxItem = (item: SidebarListItem | undefined) =>
-  item !== undefined && item.kind !== "thread" && item.kind !== "marker";
+  item !== undefined &&
+  ((item.kind !== "thread" && item.kind !== "marker") ||
+    isTopShelfRow(item) ||
+    (item.kind === "marker" &&
+      (item.marker === "done-header" || item.marker === "working-header")));
 // Matches the mb-3 on a box's last part in Sidebar.tsx. Margins are outside
 // the measured rects, so the stack has to add the space itself.
 const SIDEBAR_TAG_BOX_BOTTOM_GAP_PX = 12;
@@ -61,7 +69,22 @@ export function createSidebarCollisionDetection(
       .find((container) => container.id === sidebarMarkerId("pinned-divider"))
       ?.node.current?.querySelector(".sidebar-drag-boundary-label")
       ?.getBoundingClientRect();
-    if (items && boundary && source?.kind === "thread" && pointer) {
+    // The Done and In progress shelves sit between the pins and the divider.
+    // A pointer over them is in neither section, so it must not be pulled
+    // into the pins.
+    const topShelfTop = (["done-header", "working-header"] as const)
+      .map((marker) =>
+        args.droppableContainers.find((container) => container.id === sidebarMarkerId(marker)),
+      )
+      .find((container) => container !== undefined)
+      ?.node.current?.getBoundingClientRect().top;
+    const overTopShelves =
+      pointer != null &&
+      boundary != null &&
+      topShelfTop != null &&
+      pointer.y >= topShelfTop &&
+      pointer.y < boundary.top;
+    if (items && boundary && source?.kind === "thread" && pointer && !overTopShelves) {
       boundarySection ??= source.section === "pinned" ? "pinned" : "active";
       // Use the visible divider row, including its sortable translation.
       // Only pointer movement can change sections: opening the destination
@@ -71,7 +94,7 @@ export function createSidebarCollisionDetection(
       if (pointer.x >= boundary.left && pointer.x <= boundary.right) {
         if (pointer.y < previousY && pointer.y <= boundary.bottom) boundarySection = "pinned";
         else if (pointer.y > previousY && pointer.y >= boundary.top) boundarySection = "active";
-        const nextHeader = (["working-header", "snoozed-header", "settled-header"] as const)
+        const nextHeader = (["snoozed-header", "settled-header"] as const)
           .map((marker) =>
             args.droppableContainers.find((container) => container.id === sidebarMarkerId(marker)),
           )
@@ -131,8 +154,9 @@ export function createSidebarSortingStrategy(input: {
     if (!target) return [];
     const groups: Record<SidebarSection, ThreadItem[]> = {
       pinned: [],
-      active: [],
+      done: [],
       working: [],
+      active: [],
       snoozed: [],
       settled: [],
     };
@@ -144,7 +168,7 @@ export function createSidebarSortingStrategy(input: {
     const settledTagBoxItems: SidebarListItem[] = [];
     for (const [index, item] of items.entries()) {
       if (item.kind === "marker") {
-        if (isShelfHeader(item)) {
+        if (isBottomShelfHeader(item)) {
           const height = rects[index]?.height;
           if (height) headerScale ??= height / 32;
         }
@@ -157,9 +181,10 @@ export function createSidebarSortingStrategy(input: {
         ).push(item);
         continue;
       }
-      if (item.section === "pinned" || item.section === "active" || item.section === "working")
-        cardHeight ??= rects[index]?.height;
-      else slimHeight ??= rects[index]?.height;
+      // Boxed rows carry the box's padding, so they don't measure a plain card.
+      if (isCardSection(item.section)) {
+        if (!isTopShelfRow(item)) cardHeight ??= rects[index]?.height;
+      } else slimHeight ??= rects[index]?.height;
       if (item.key !== active.key) groups[item.section].push(item);
     }
     const scale =
@@ -197,19 +222,25 @@ export function createSidebarSortingStrategy(input: {
       if (groups[name].length > 0) projected.push(...groups[name]);
       else marker(`${name}-placeholder`);
     };
+    const hasMarker = (name: SidebarListMarker) =>
+      items.some((item) => item.kind === "marker" && item.marker === name);
     marker("pinned-header");
     projected.push(...groups.pinned);
-    marker("pinned-divider");
-    projected.push(...activeTagBoxItems);
-    section("active");
-    if (items.some((item) => item.kind === "marker" && item.marker === "working-header")) {
+    if (hasMarker("done-header")) {
+      marker("done-header");
+      projected.push(...groups.done);
+    }
+    if (hasMarker("working-header")) {
       marker("working-header");
       projected.push(...groups.working);
     }
+    marker("pinned-divider");
+    projected.push(...activeTagBoxItems);
+    section("active");
     if (
       groups.snoozed.length > 0 ||
       ((active.section !== "snoozed" || (input.snoozedThreadCount ?? 0) > 1) &&
-        items.some((item) => item.kind === "marker" && item.marker === "snoozed-header"))
+        hasMarker("snoozed-header"))
     ) {
       marker("snoozed-header");
       projected.push(...groups.snoozed);
@@ -221,8 +252,7 @@ export function createSidebarSortingStrategy(input: {
       const index = indices.get(sidebarListItemId(item));
       const rect = index === undefined ? undefined : rects[index];
       const fallback =
-        (item.kind === "thread" &&
-          (item.section === "pinned" || item.section === "active" || item.section === "working")) ||
+        (item.kind === "thread" && isCardSection(item.section)) ||
         (item.kind === "tag-box-thread" && item.section === "active")
           ? cardHeight
           : slimHeight;
@@ -236,7 +266,7 @@ export function createSidebarSortingStrategy(input: {
             ? fallback
             : (rect?.height ?? fallback);
     });
-    const firstShelf = items.findIndex(isShelfHeader);
+    const firstShelf = items.findIndex(isBottomShelfHeader);
     const shelfRect = rects[firstShelf];
     const beforeShelf = rects[firstShelf - 1];
     const lastRect = rects.at(-1);
@@ -255,7 +285,7 @@ export function createSidebarSortingStrategy(input: {
     const result = items.map(() => hidden);
     let top = rects[0].top;
     for (const [projectedIndex, item] of projected.entries()) {
-      if (isShelfHeader(item)) {
+      if (isBottomShelfHeader(item)) {
         top += shelfSpace;
         shelfSpace = 0;
       }

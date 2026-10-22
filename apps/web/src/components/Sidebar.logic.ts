@@ -115,11 +115,11 @@ export const animateSidebarLayoutChanges: AnimateLayoutChanges = (args) =>
   args.isSorting ? defaultAnimateLayoutChanges(args) : false;
 
 // Snoozed rows can leave the shelf, but dropping into it is not supported
-// because snoozing requires a wake time. The Working shelf (beta) follows live
-// status, so its rows only drag out as chat context, never between sidebar
-// sections.
+// because snoozing requires a wake time. The Done and In progress shelves
+// (beta) follow live status, so their rows only drag out as chat context,
+// never between sidebar sections.
 
-export type SidebarSection = "pinned" | "active" | "working" | "snoozed" | "settled";
+export type SidebarSection = "pinned" | "done" | "working" | "active" | "snoozed" | "settled";
 
 export function resolveSidebarThreadSection(input: {
   readonly snoozed: boolean;
@@ -139,6 +139,7 @@ export type SidebarListMarker =
   | "active-placeholder"
   | "settled-placeholder"
   | "pinned-divider"
+  | "done-header"
   | "working-header"
   | "snoozed-header"
   | "settled-header";
@@ -198,6 +199,7 @@ function sectionAtSidebarSlot(items: readonly SidebarListItem[], index: number):
     const item = items[i]!;
     if (item.kind !== "marker") continue;
     if (item.marker === "pinned-divider") section = "active";
+    else if (item.marker === "done-header") section = "done";
     else if (item.marker === "working-header") section = "working";
     else if (item.marker === "snoozed-header") section = "snoozed";
     else if (item.marker === "settled-header") section = "settled";
@@ -224,24 +226,21 @@ export function resolveSidebarDropTarget(
   const moved = items.filter((_, index) => index !== activeIndex);
   moved.splice(overIndex, 0, items[activeIndex]!);
   const section = sectionAtSidebarSlot(moved, overIndex);
-  if (section === "working" || section === "snoozed") return null;
+  if (section === "done" || section === "working" || section === "snoozed") return null;
   const pinnedOrder: string[] = [];
   const activeOrder: string[] = [];
   let currentSection: SidebarSection = "pinned";
   for (const item of moved) {
     if (item.kind === "marker") {
       if (item.marker === "pinned-divider") currentSection = "active";
-      else if (
-        item.marker === "working-header" ||
-        item.marker === "snoozed-header" ||
-        item.marker === "settled-header"
-      )
-        break;
+      else if (item.marker === "done-header") currentSection = "done";
+      else if (item.marker === "working-header") currentSection = "working";
+      else if (item.marker === "snoozed-header" || item.marker === "settled-header") break;
     } else if (item.kind !== "thread") {
       // Boxed rows keep their own order; the loose list is arranged without them.
       continue;
     } else if (currentSection === "pinned") pinnedOrder.push(item.key);
-    else activeOrder.push(item.key);
+    else if (currentSection === "active") activeOrder.push(item.key);
   }
   return { section, pinnedOrder, activeOrder };
 }
@@ -275,7 +274,9 @@ export function resolveSidebarDropVerb(
   from: SidebarSection,
   to: SidebarSection | null,
 ): SidebarDropVerb | null {
-  if (to === null || to === from || to === "working" || to === "snoozed") return null;
+  if (to === null || to === from || to === "done" || to === "working" || to === "snoozed") {
+    return null;
+  }
   if (to === "pinned") return "pin";
   if (to === "settled") return "settle";
   if (from === "pinned") return "unpin";
@@ -334,7 +335,7 @@ export function planSidebarThreadDrop(input: {
     activeKeysById,
     activeReorderableKeys,
   } = input;
-  if (activeSection === "working") return { kind: "none" };
+  if (activeSection === "done" || activeSection === "working") return { kind: "none" };
   if (input.supportsSettlement === false && (target.section === "settled" || activeSettled)) {
     return { kind: "none" };
   }
@@ -670,16 +671,34 @@ export interface SidebarTagBox<T> {
   readonly threads: readonly T[];
 }
 
+const SIDEBAR_TAG_BOX_MIN_THREADS = 2;
+
+/** Done and In progress follow the folders' rule: one chat is a plain row, not a box. */
+export function isSidebarShelfBoxed(threads: readonly unknown[]): boolean {
+  return threads.length >= SIDEBAR_TAG_BOX_MIN_THREADS;
+}
+
 /**
  * Splits an already sorted sidebar list into one box per tag and the untagged
  * rest, keeping the list's order inside each. Boxes follow `tagDisplayNames`
  * (from collectSidebarThreadTagNames), which is alphabetical, so a box never
  * moves because one of its chats got busy.
+ *
+ * A tag only gets a box when it has two or more chats, counting the ones Done
+ * and In progress took out of the list (`liftedCountByTagKey`). A tag with a
+ * single chat leaves it in the loose rest, in its usual place.
  */
 export function groupSidebarThreadsByTag<T extends Pick<SidebarThreadSummary, "tag">>(
   threads: readonly T[],
   tagDisplayNames: readonly string[],
+  liftedCountByTagKey: ReadonlyMap<string, number> = new Map(),
 ): { readonly boxes: SidebarTagBox<T>[]; readonly looseThreads: T[] } {
+  const listedCountByTagKey = new Map<string, number>();
+  for (const thread of threads) {
+    if (thread.tag === null) continue;
+    const tagKey = threadTagGroupKey(thread.tag);
+    listedCountByTagKey.set(tagKey, (listedCountByTagKey.get(tagKey) ?? 0) + 1);
+  }
   const looseThreads: T[] = [];
   const threadsByTagKey = new Map<string, { readonly spelling: string; readonly threads: T[] }>();
   for (const thread of threads) {
@@ -688,6 +707,12 @@ export function groupSidebarThreadsByTag<T extends Pick<SidebarThreadSummary, "t
       continue;
     }
     const tagKey = threadTagGroupKey(thread.tag);
+    const totalCount =
+      (listedCountByTagKey.get(tagKey) ?? 0) + (liftedCountByTagKey.get(tagKey) ?? 0);
+    if (totalCount < SIDEBAR_TAG_BOX_MIN_THREADS) {
+      looseThreads.push(thread);
+      continue;
+    }
     const group = threadsByTagKey.get(tagKey);
     if (group) group.threads.push(thread);
     else threadsByTagKey.set(tagKey, { spelling: thread.tag, threads: [thread] });
@@ -1181,6 +1206,57 @@ export function resolveSidebarV2TopStatus(input: {
   return input.isUnread ? "done" : null;
 }
 
+/**
+ * Pulls each project's threads together, keeping the list's order inside a
+ * project and ordering projects by where their first thread sits. On a
+ * newest-first list, the project with the newest thread leads.
+ */
+export function groupSidebarThreadsByProject<
+  T extends Pick<SidebarThreadSummary, "environmentId" | "projectId">,
+>(threads: readonly T[]): T[] {
+  const threadsByProject = new Map<string, T[]>();
+  for (const thread of threads) {
+    const projectKey = `${thread.environmentId}:${thread.projectId}`;
+    const projectThreads = threadsByProject.get(projectKey);
+    if (projectThreads) projectThreads.push(thread);
+    else threadsByProject.set(projectKey, [thread]);
+  }
+  return Array.from(threadsByProject.values()).flat();
+}
+
+export function isSidebarThreadWoke(input: {
+  readonly wokeAt: string | null;
+  readonly lastVisitedAt: string | undefined;
+  readonly settledOverride: SidebarThreadSummary["settledOverride"];
+}): boolean {
+  if (input.wokeAt === null || input.settledOverride === "settled") return false;
+  const wokeAtMs = Date.parse(input.wokeAt);
+  if (Number.isNaN(wokeAtMs)) return false;
+  const lastVisitedAtMs =
+    input.lastVisitedAt === undefined ? Number.NaN : Date.parse(input.lastVisitedAt);
+  return Number.isNaN(lastVisitedAtMs) || lastVisitedAtMs < wokeAtMs;
+}
+
+/** True when the chat's row shows "Done", which is the rule the Done shelf uses. */
+export function isSidebarThreadDone(
+  thread: ThreadStatusInput &
+    SidebarThreadStatusInput &
+    Pick<SidebarThreadSummary, "settledOverride">,
+  input: { readonly lastVisitedAt: string | undefined; readonly wokeAt: string | null },
+): boolean {
+  return (
+    resolveSidebarV2TopStatus({
+      status: resolveSidebarThreadStatus(thread),
+      isUnread: hasUnseenCompletion({ ...thread, lastVisitedAt: input.lastVisitedAt }),
+      isWoke: isSidebarThreadWoke({
+        wokeAt: input.wokeAt,
+        lastVisitedAt: input.lastVisitedAt,
+        settledOverride: thread.settledOverride,
+      }),
+    }) === "done"
+  );
+}
+
 export function firstValidTimestampMs(
   ...candidates: ReadonlyArray<string | null | undefined>
 ): number {
@@ -1195,6 +1271,7 @@ export function firstValidTimestampMs(
 export { sortActiveThreadsByOrderKey as sortThreadsForSidebar } from "@t3tools/client-runtime/state/thread-sort";
 export {
   isThreadWorking as isSidebarThreadWorking,
+  sortDoneThreadsByFinish,
   sortInboxThreadsByReturn,
   sortWorkingThreadsBySend,
 } from "@t3tools/client-runtime/state/thread-inbox";

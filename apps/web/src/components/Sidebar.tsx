@@ -151,9 +151,12 @@ import {
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
   firstValidTimestampMs,
+  groupSidebarThreadsByProject,
   groupSidebarThreadsByTag,
+  isSidebarShelfBoxed,
   isSidebarNestedLinkClick,
   isSidebarTagBoxOpen,
+  isSidebarThreadDone,
   isSidebarThreadWorking,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
@@ -165,17 +168,21 @@ import {
   resolveSidebarDropVerb,
   resolveSidebarThreadSection,
   resolveSidebarTagBoxRows,
+  resolveThreadLastVisitedAt,
   resolveThreadTagNameForSave,
   searchSidebarThreads,
   shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
   sidebarListItemId,
+  sidebarMarkerId,
   sidebarThreadKeyAtY,
   sortInboxThreadsByReturn,
   sortPinnedThreadsForSidebar,
   sortThreadsForSidebar,
+  sortDoneThreadsByFinish,
   sortWorkingThreadsBySend,
   summarizeSidebarTagBoxStatus,
+  threadTagGroupKey,
   toggleSidebarTagBox,
   useThreadJumpHintVisibility,
   type SidebarListItem,
@@ -225,6 +232,7 @@ import {
   SidebarDragBoundary,
   SidebarSectionHeader,
   SidebarSectionPlaceholder,
+  SidebarEmptyShelfHeader,
   SidebarTagBoxHeader,
   SortableSidebarTagBoxItem,
 } from "./sidebar/SidebarListMarkers";
@@ -289,6 +297,7 @@ const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
+const DONE_SHELF_EXPANDED_KEY = "t3code:sidebar:done-expanded";
 const WORKING_SHELF_EXPANDED_KEY = "t3code:sidebar:working-expanded";
 const TAG_BOX_TOGGLES_KEY = "t3code:sidebar:tag-box-toggles";
 const TagBoxTogglesSchema = Schema.Struct({
@@ -320,6 +329,8 @@ interface SidebarThreadPartitionInput {
   readonly serverConfigs: ReadonlyMap<EnvironmentId, EnvironmentServerConfig>;
   readonly optimisticDrop: SidebarOptimisticDrop | null;
   readonly workingShelfEnabled: boolean;
+  // Visits recorded in this browser, for servers that don't track them.
+  readonly localLastVisitedAtByKey: Readonly<Record<string, string>>;
   // Snooze wakes and the queued-turn grace depend on the clock, so the minute
   // tick and the precise snooze-wake tick are inputs: a new key repartitions.
   readonly clockKey: string;
@@ -400,6 +411,7 @@ function useSidebarThreads(input: {
           ),
         );
   const workingShelfEnabled = useClientSettings((s) => s.sidebarWorkingShelfEnabled);
+  const localLastVisitedAtByKey = useUiStateStore((store) => store.threadLastVisitedAtById);
   const nowMinute = useNowMinute();
   // Snooze wake times are second-precise, so classifying with the quantized
   // minute would hold a woken thread on the shelf for up to a minute.
@@ -419,9 +431,14 @@ function useSidebarThreads(input: {
     false,
     Schema.Boolean,
   );
+  const [doneShelfExpanded, setDoneShelfExpanded] = useLocalStorage(
+    DONE_SHELF_EXPANDED_KEY,
+    true,
+    Schema.Boolean,
+  );
   const [workingShelfExpanded, setWorkingShelfExpanded] = useLocalStorage(
     WORKING_SHELF_EXPANDED_KEY,
-    false,
+    true,
     Schema.Boolean,
   );
   // The settled tail restarts whenever the project scope changes.
@@ -455,19 +472,35 @@ function useSidebarThreads(input: {
     serverConfigs,
     optimisticDrop,
     workingShelfEnabled,
+    localLastVisitedAtByKey,
     clockKey: `${nowMinute}:${snoozeWakeTick}`,
   });
   const partitionNextWakeAt = partition.snoozedThreads[0]?.snoozedUntil ?? null;
   if (partitionNextWakeAt !== nextSnoozeWakeAt) setNextSnoozeWakeAt(partitionNextWakeAt);
 
-  const { pinnedThreads, activeThreads, workingThreads, snoozedThreads, settledThreads } =
-    partition;
+  const {
+    pinnedThreads,
+    doneThreads,
+    activeThreads,
+    workingThreads,
+    snoozedThreads,
+    settledThreads,
+  } = partition;
+  // Done and In progress take chats out of their folders, so each folder
+  // shows how many of its chats are up there.
+  const liftedCountByTagKey = new Map<string, number>();
+  for (const thread of [...doneThreads, ...workingThreads]) {
+    if (thread.tag === null) continue;
+    const tagKey = threadTagGroupKey(thread.tag);
+    liftedCountByTagKey.set(tagKey, (liftedCountByTagKey.get(tagKey) ?? 0) + 1);
+  }
   // Display spellings come from every visible chat, so a tag reads the same
   // in its active box, its settled box, and the "Move to tag" menu.
   const tagDisplayNames = collectSidebarThreadTagNames(threads);
   const { boxes: activeTagBoxes, looseThreads: looseActiveThreads } = groupSidebarThreadsByTag(
     activeThreads,
     tagDisplayNames,
+    liftedCountByTagKey,
   );
   const { boxes: settledTagBoxes, looseThreads: looseSettledThreads } = groupSidebarThreadsByTag(
     settledThreads,
@@ -501,6 +534,7 @@ function useSidebarThreads(input: {
         routeThreadKey: routeRowThreadKey,
       }),
       summary: open ? null : summarizeSidebarTagBoxStatus(box.threads),
+      liftedCount: liftedCountByTagKey.get(box.tagKey) ?? 0,
     };
   });
   const renderedSettledTagBoxes = settledShelfExpanded
@@ -517,20 +551,28 @@ function useSidebarThreads(input: {
           }),
           // Settled chats aren't working or waiting on anyone.
           summary: null,
+          liftedCount: 0,
         };
       })
     : [];
   const visibleSnoozedThreads = snoozedShelfExpanded
     ? snoozedThreads
     : routeThreadOnly(snoozedThreads, routeRowThreadKey);
-  const visibleWorkingThreads = workingShelfExpanded
-    ? workingThreads
-    : routeThreadOnly(workingThreads, routeRowThreadKey);
+  // A lone Done or In progress chat has no box, so nothing can collapse it.
+  const visibleDoneThreads =
+    doneShelfExpanded || !isSidebarShelfBoxed(doneThreads)
+      ? doneThreads
+      : routeThreadOnly(doneThreads, routeRowThreadKey);
+  const visibleWorkingThreads =
+    workingShelfExpanded || !isSidebarShelfBoxed(workingThreads)
+      ? workingThreads
+      : routeThreadOnly(workingThreads, routeRowThreadKey);
   const orderedThreads = [
     ...pinnedThreads,
+    ...visibleDoneThreads,
+    ...visibleWorkingThreads,
     ...renderedActiveTagBoxes.flatMap((box) => box.rows),
     ...looseActiveThreads,
-    ...visibleWorkingThreads,
     ...visibleSnoozedThreads,
     ...renderedSettledTagBoxes.flatMap((box) => box.rows),
     ...renderedSettledThreads,
@@ -538,8 +580,9 @@ function useSidebarThreads(input: {
   const sectionByThreadKey = new Map<string, SidebarSection>();
   for (const [list, section] of [
     [pinnedThreads, "pinned"],
-    [activeThreads, "active"],
+    [doneThreads, "done"],
     [workingThreads, "working"],
+    [activeThreads, "active"],
     [snoozedThreads, "snoozed"],
     [settledThreads, "settled"],
   ] as const) {
@@ -552,8 +595,9 @@ function useSidebarThreads(input: {
     workingShelfEnabled,
     searchableThreads: [
       ...pinnedThreads,
-      ...activeThreads,
+      ...doneThreads,
       ...workingThreads,
+      ...activeThreads,
       ...snoozedThreads,
       ...settledThreads,
     ],
@@ -583,10 +627,13 @@ function useSidebarThreads(input: {
     toggleSettledShelf: () => setSettledShelfExpanded((value) => !value),
     snoozedShelfExpanded,
     toggleSnoozedShelf: () => setSnoozedShelfExpanded((value) => !value),
+    doneShelfExpanded,
+    toggleDoneShelf: () => setDoneShelfExpanded((value) => !value),
     workingShelfExpanded,
     toggleWorkingShelf: () => setWorkingShelfExpanded((value) => !value),
     renderedSettledThreads,
     visibleSnoozedThreads,
+    visibleDoneThreads,
     visibleWorkingThreads,
     orderedThreadKeys: orderedThreads.map(threadShellKey),
     threadByKey: new Map(orderedThreads.map((thread) => [threadShellKey(thread), thread] as const)),
@@ -606,16 +653,31 @@ function useSidebarThreads(input: {
 }
 
 function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
-  const { threads, scopedProjectKeys, serverConfigs, optimisticDrop, workingShelfEnabled } = input;
+  const {
+    threads,
+    scopedProjectKeys,
+    serverConfigs,
+    optimisticDrop,
+    workingShelfEnabled,
+    localLastVisitedAtByKey,
+  } = input;
   const preciseNow = new Date().toISOString();
   const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys);
   inboxReturns.observe(workingShelfEnabled ? threads : null);
   const pinned: EnvironmentThreadShell[] = [];
-  const active: EnvironmentThreadShell[] = [];
+  const done: EnvironmentThreadShell[] = [];
   const working: EnvironmentThreadShell[] = [];
-  // Tagged threads stay in their tag's box instead of folding into Working.
-  const inbox = (thread: EnvironmentThreadShell) =>
-    workingShelfEnabled && thread.tag === null && isSidebarThreadWorking(thread) ? working : active;
+  const active: EnvironmentThreadShell[] = [];
+  const inbox = (thread: EnvironmentThreadShell) => {
+    if (!workingShelfEnabled) return active;
+    if (isSidebarThreadWorking(thread)) return working;
+    const lastVisitedAt = resolveThreadLastVisitedAt(
+      thread.lastVisitedAt,
+      localLastVisitedAtByKey[threadShellKey(thread)],
+    );
+    const wokeAt = threadWokeAt(thread, { now: preciseNow });
+    return isSidebarThreadDone(thread, { lastVisitedAt, wokeAt }) ? done : active;
+  };
   const snoozed: EnvironmentThreadShell[] = [];
   const settled: EnvironmentThreadShell[] = [];
   const draggable = new Set<string>();
@@ -680,6 +742,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
           }),
     draggableThreadKeys: draggable,
     activeReorderableThreadKeys: activeReorderable,
+    doneThreads: groupSidebarThreadsByProject(sortDoneThreadsByFinish(done)),
     activeThreads:
       optimisticDrop?.section !== "active" || optimisticDrop.order === null
         ? sortedActive
@@ -688,7 +751,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
             preferredIds: optimisticDrop.order,
             getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
           }),
-    workingThreads: sortWorkingThreadsBySend(working),
+    workingThreads: groupSidebarThreadsByProject(sortWorkingThreadsBySend(working)),
     snoozedThreads: snoozed.toSorted(
       (left, right) =>
         firstValidTimestampMs(left.snoozedUntil ?? null) -
@@ -1134,6 +1197,7 @@ export default function Sidebar() {
     draggableThreadKeys,
     activeReorderableThreadKeys,
     activeThreads,
+    doneThreads,
     workingThreads,
     snoozedThreads,
     settledThreads,
@@ -1146,10 +1210,13 @@ export default function Sidebar() {
     toggleSettledShelf,
     snoozedShelfExpanded,
     toggleSnoozedShelf,
+    doneShelfExpanded,
+    toggleDoneShelf,
     workingShelfExpanded,
     toggleWorkingShelf,
     renderedSettledThreads,
     visibleSnoozedThreads,
+    visibleDoneThreads,
     visibleWorkingThreads,
     orderedThreadKeys,
     threadByKey,
@@ -1486,8 +1553,12 @@ export default function Sidebar() {
     listMotionRef.current?.update(false);
   };
 
-  // Working rows can supply chat context, but never preview sidebar movement.
-  const isContextDrag = dragState?.contextDrag === true || dragState?.activeSection === "working";
+  // Done and In progress rows can supply chat context, but never preview
+  // sidebar movement.
+  const isContextDrag =
+    dragState?.contextDrag === true ||
+    dragState?.activeSection === "done" ||
+    dragState?.activeSection === "working";
   const dragTargetSection = isContextDrag ? null : (dragState?.targetSection ?? null);
   const finishThreadDrag = (started: boolean) => {
     dragSensorRef.current = null;
@@ -1719,8 +1790,9 @@ export default function Sidebar() {
       });
     if (
       pinnedThreads.length +
-        activeThreads.length +
+        doneThreads.length +
         workingThreads.length +
+        activeThreads.length +
         snoozedThreads.length +
         settledThreads.length ===
       0
@@ -1753,15 +1825,21 @@ export default function Sidebar() {
     const items: SidebarListItem[] = [{ kind: "marker", marker: "pinned-header" }];
     const pinnedRows = rowsOf(pinnedThreads, "pinned");
     items.push(...pinnedRows);
+    // The top shelves sit above the divider: sections are read from marker
+    // order, and the divider is where the arrangeable inbox starts.
+    if (doneThreads.length > 0) {
+      items.push({ kind: "marker", marker: "done-header" });
+      items.push(...rowsOf(visibleDoneThreads, "done"));
+    }
+    if (workingThreads.length > 0) {
+      items.push({ kind: "marker", marker: "working-header" });
+      items.push(...rowsOf(visibleWorkingThreads, "working"));
+    }
     items.push({ kind: "marker", marker: "pinned-divider" });
     items.push(...tagBoxItemsOf(renderedActiveTagBoxes, "active"));
     const activeRows = rowsOf(looseActiveThreads, "active");
     items.push({ kind: "marker", marker: "active-placeholder" });
     items.push(...activeRows);
-    if (workingThreads.length > 0) {
-      items.push({ kind: "marker", marker: "working-header" });
-      items.push(...rowsOf(visibleWorkingThreads, "working"));
-    }
     if (snoozedThreads.length > 0) {
       items.push({ kind: "marker", marker: "snoozed-header" });
       items.push(...rowsOf(visibleSnoozedThreads, "snoozed"));
@@ -3032,12 +3110,16 @@ export default function Sidebar() {
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
                         tagBoxPart?: "middle" | "last",
+                        shelfBoxPart?: "middle" | "last" | "alone",
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
                         );
                         const isCard =
-                          section === "active" || section === "pinned" || section === "working";
+                          section === "active" ||
+                          section === "pinned" ||
+                          section === "done" ||
+                          section === "working";
                         const rowVariant = isCard ? "card" : "slim";
                         return (
                           <SortableThreadRow
@@ -3075,9 +3157,7 @@ export default function Sidebar() {
                                 .threadPinning === true
                             }
                             isPinned={thread.pinnedAt != null}
-                            // Inside its box the box title already names the tag.
-                            tagLabel={tagBoxPart ? null : thread.tag}
-                            tagBoxPart={tagBoxPart}
+                            tagBoxPart={tagBoxPart ?? shelfBoxPart}
                             dropVerb={
                               dragState?.activeKey === threadKey
                                 ? resolveSidebarDropVerb(dragState.activeSection, dragTargetSection)
@@ -3158,9 +3238,34 @@ export default function Sidebar() {
                           onDraftContextMenu={handleDraftContextMenu}
                         />,
                       ];
+                      // Done and In progress are drawn as boxes like the tag
+                      // folders; a box ends where its section's rows end.
+                      const endsShelfBox = (index: number, section: SidebarSection) => {
+                        const next = sidebarListItems[index + 1];
+                        return next?.kind !== "thread" || next.section !== section;
+                      };
                       for (const [index, item] of sidebarListItems.entries()) {
                         if (item.kind === "thread") {
-                          items.push(renderThreadRow(threadByKey.get(item.key)!, item.section));
+                          const shelfThreads =
+                            item.section === "done"
+                              ? doneThreads
+                              : item.section === "working"
+                                ? workingThreads
+                                : null;
+                          items.push(
+                            renderThreadRow(
+                              threadByKey.get(item.key)!,
+                              item.section,
+                              undefined,
+                              shelfThreads === null
+                                ? undefined
+                                : !isSidebarShelfBoxed(shelfThreads)
+                                  ? "alone"
+                                  : endsShelfBox(index, item.section)
+                                    ? "last"
+                                    : "middle",
+                            ),
+                          );
                           continue;
                         }
                         if (item.kind !== "marker") {
@@ -3216,6 +3321,7 @@ export default function Sidebar() {
                               id={sidebarListItemId(item)}
                               displayName={box.displayName}
                               threadCount={box.threads.length}
+                              liftedCount={box.liftedCount}
                               open={box.open}
                               endsBox={endsBox}
                               summary={box.summary}
@@ -3265,21 +3371,53 @@ export default function Sidebar() {
                               />,
                             );
                             break;
-                          case "working-header":
+                          case "done-header":
+                            if (!isSidebarShelfBoxed(doneThreads)) {
+                              items.push(
+                                <SidebarEmptyShelfHeader
+                                  key="done-shelf-header"
+                                  marker="done-header"
+                                />,
+                              );
+                              break;
+                            }
                             items.push(
-                              <SidebarSectionHeader
+                              <SidebarTagBoxHeader
+                                key="done-shelf-header"
+                                id={sidebarMarkerId("done-header")}
+                                displayName="Done"
+                                tone="success"
+                                threadCount={doneThreads.length}
+                                liftedCount={0}
+                                open={doneShelfExpanded}
+                                endsBox={endsShelfBox(index, "done")}
+                                summary={null}
+                                onToggle={toggleDoneShelf}
+                              />,
+                            );
+                            break;
+                          case "working-header":
+                            if (!isSidebarShelfBoxed(workingThreads)) {
+                              items.push(
+                                <SidebarEmptyShelfHeader
+                                  key="working-shelf-header"
+                                  marker="working-header"
+                                />,
+                              );
+                              break;
+                            }
+                            items.push(
+                              <SidebarTagBoxHeader
                                 key="working-shelf-header"
-                                marker="working-header"
-                                className="mt-auto"
-                                label={
-                                  workingShelfExpanded
-                                    ? "Working"
-                                    : `Working (${workingThreads.length})`
-                                }
-                                toggle={{
-                                  expanded: workingShelfExpanded,
-                                  onToggle: toggleWorkingShelf,
-                                }}
+                                id={sidebarMarkerId("working-header")}
+                                displayName="In progress"
+                                tone="info"
+                                threadCount={workingThreads.length}
+                                liftedCount={0}
+                                open={workingShelfExpanded}
+                                endsBox={endsShelfBox(index, "working")}
+                                summary={null}
+                                onToggle={toggleWorkingShelf}
                               />,
                             );
                             break;
@@ -3288,7 +3426,7 @@ export default function Sidebar() {
                               <SidebarSectionHeader
                                 key="snoozed-shelf-header"
                                 marker="snoozed-header"
-                                className={cn(workingThreads.length === 0 && "mt-auto")}
+                                className="mt-auto"
                                 label={
                                   snoozedShelfExpanded
                                     ? "Snoozed"
@@ -3306,9 +3444,7 @@ export default function Sidebar() {
                               <SidebarSectionHeader
                                 key="settled-shelf-header"
                                 marker="settled-header"
-                                className={cn(
-                                  workingThreads.length + snoozedThreads.length === 0 && "mt-auto",
-                                )}
+                                className={cn(snoozedThreads.length === 0 && "mt-auto")}
                                 label={
                                   settledShelfExpanded
                                     ? "Settled"
@@ -3365,8 +3501,9 @@ export default function Sidebar() {
           {!isSearchingThreads &&
           visibleDraftSessionCount === 0 &&
           pinnedThreads.length +
-            activeThreads.length +
+            doneThreads.length +
             workingThreads.length +
+            activeThreads.length +
             snoozedThreads.length +
             settledThreads.length ===
             0 ? (

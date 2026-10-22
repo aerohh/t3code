@@ -65,6 +65,11 @@ export function SidebarSectionPlaceholder(props: {
   );
 }
 
+/** Keeps a Done or In progress marker in the list when its one chat has no box. */
+export function SidebarEmptyShelfHeader(props: { marker: "done-header" | "working-header" }) {
+  return <SortableSidebarMarker marker={props.marker} className="h-0" />;
+}
+
 export function SidebarDragBoundary(props: {
   marker: "pinned-header" | "pinned-divider";
   label: string;
@@ -101,19 +106,14 @@ export function SidebarDragBoundary(props: {
 }
 
 export function SidebarSectionHeader(props: {
-  marker: "working-header" | "snoozed-header" | "settled-header";
+  marker: "snoozed-header" | "settled-header";
   label: string;
   className?: string;
   dragging?: boolean;
   isDropTarget?: boolean;
   toggle: { expanded: boolean; onToggle: () => void };
 }) {
-  const shelf =
-    props.marker === "working-header"
-      ? "working"
-      : props.marker === "snoozed-header"
-        ? "snoozed"
-        : "settled";
+  const shelf = props.marker === "snoozed-header" ? "snoozed" : "settled";
   const snoozed = shelf === "snoozed";
   return (
     <SortableSidebarMarker
@@ -166,7 +166,11 @@ export function SortableSidebarTagBoxItem(props: {
 export function SidebarTagBoxHeader(props: {
   id: string;
   displayName: string;
+  /** The Done and In progress shelves reuse the box with a coloured top. */
+  tone?: "info" | "success";
   threadCount: number;
+  /** This tag's chats shown up in Done or In progress instead. */
+  liftedCount: number;
   open: boolean;
   /** A box with no rows below its header ends here. */
   endsBox: boolean;
@@ -186,13 +190,19 @@ export function SidebarTagBoxHeader(props: {
           "border-x border-t p-1",
           sidebarTagBoxSurfaceClassName(props.endsBox ? "whole" : "top"),
           props.endsBox ? "rounded-lg border-b" : "rounded-t-lg",
+          // The tint covers the box's whole top slice, fading from its top
+          // edge into the card, on a slightly blurred layer so it stays soft.
+          "relative isolate overflow-hidden before:absolute before:inset-0 before:-z-10 before:bg-linear-to-b before:to-transparent before:blur-xs",
+          props.tone === undefined && "before:from-sidebar-foreground/3.5",
+          props.tone === "info" && "before:from-info/3.5",
+          props.tone === "success" && "before:from-success/3",
         )}
       >
         <button
           type="button"
           aria-expanded={props.open}
           onClick={props.onToggle}
-          className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md bg-sidebar-foreground/4 px-2 text-left text-xs font-semibold text-sidebar-foreground hover:bg-sidebar-foreground/6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+          className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-left text-xs font-semibold text-sidebar-foreground hover:bg-sidebar-foreground/4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
         >
           <ChevronRightIcon
             aria-hidden
@@ -205,6 +215,12 @@ export function SidebarTagBoxHeader(props: {
           <span className="shrink-0 rounded-full bg-sidebar-foreground/8 px-1.5 text-2xs font-medium leading-4 tabular-nums text-sidebar-muted-foreground">
             {props.threadCount}
           </span>
+          {props.liftedCount > 0 ? (
+            <span className="shrink-0 rounded-full bg-primary/15 px-1.5 text-2xs font-medium leading-4 tabular-nums text-primary">
+              <span className="sr-only">{`${props.liftedCount} in Done or In progress`}</span>
+              <span aria-hidden>{props.liftedCount}</span>
+            </span>
+          ) : null}
         </button>
         {summary ? (
           <div className="flex items-center gap-1.5 pt-1 pb-0.5 ps-6.5 pe-2 text-2xs text-sidebar-muted-foreground">

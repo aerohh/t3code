@@ -74,6 +74,20 @@ export function sortWorkingThreadsBySend<T extends WorkingSortInput>(threads: re
   return sortNewestFirst(threads, timestamps);
 }
 
+export function sortDoneThreadsByFinish<
+  T extends Pick<EnvironmentThreadShell, "id" | "environmentId" | "createdAt" | "latestRun">,
+>(threads: readonly T[]): T[] {
+  const timestamps = new Map(
+    threads.map((thread) => [
+      thread,
+      toSortableTimestamp(thread.latestRun?.completedAt ?? undefined) ??
+        toSortableTimestamp(thread.createdAt) ??
+        0,
+    ]),
+  );
+  return sortNewestFirst(threads, timestamps);
+}
+
 function sortNewestFirst<T extends Pick<EnvironmentThreadShell, "id" | "environmentId">>(
   threads: readonly T[],
   timestamps: ReadonlyMap<T, number>,

@@ -14,6 +14,8 @@ import {
   filterSidebarV2VisibleThreads,
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
+  isSidebarThreadDone,
+  groupSidebarThreadsByProject,
   resolveSidebarRowThreadId,
   isSidebarThreadWorking,
   orderItemsByPreferredIds,
@@ -28,6 +30,7 @@ import {
   shouldRecedeSidebarThread,
   sortInboxThreadsByReturn,
   resolveSidebarDropTarget,
+  sidebarMarkerId,
   planSidebarThreadDrop,
   sortPinnedThreadsForSidebar,
   sortProjectsForSidebar,
@@ -234,6 +237,7 @@ describe("sidebar thread tags", () => {
       taggedThread("billing-1", "billing"),
       taggedThread("loose-2", null),
       taggedThread("billing-2", "Billing"),
+      taggedThread("support-2", "support"),
       taggedThread("billing-3", "Billing"),
     ];
     const tagNames = collectSidebarThreadTagNames(threads);
@@ -242,7 +246,7 @@ describe("sidebar thread tags", () => {
       boxes.map((box) => [box.tagKey, box.displayName, box.threads.map((thread) => thread.id)]),
     ).toEqual([
       ["billing", "Billing", ["billing-1", "billing-2", "billing-3"]],
-      ["support", "support", ["support-1"]],
+      ["support", "support", ["support-1", "support-2"]],
     ]);
     expect(looseThreads.map((thread) => thread.id)).toEqual(["loose-1", "loose-2"]);
     // Activity reorders the list, never the boxes.
@@ -251,9 +255,40 @@ describe("sidebar thread tags", () => {
     ).toEqual(["billing", "support"]);
   });
 
+  it("boxes a tag only from two chats, counting chats lifted into Done or In progress", () => {
+    const threads = [
+      taggedThread("loose-1", null),
+      taggedThread("ops-1", "Ops"),
+      taggedThread("billing-1", "Billing"),
+      taggedThread("loose-2", null),
+    ];
+    const tagNames = collectSidebarThreadTagNames(threads);
+    const alone = groupSidebarThreadsByTag(threads, tagNames);
+    expect(alone.boxes).toEqual([]);
+    // A lone tagged chat keeps its place among the loose ones.
+    expect(alone.looseThreads.map((thread) => thread.id)).toEqual([
+      "loose-1",
+      "ops-1",
+      "billing-1",
+      "loose-2",
+    ]);
+    const lifted = groupSidebarThreadsByTag(threads, tagNames, new Map([["billing", 1]]));
+    expect(lifted.boxes.map((box) => [box.tagKey, box.threads.length])).toEqual([["billing", 1]]);
+    expect(lifted.looseThreads.map((thread) => thread.id)).toEqual(["loose-1", "ops-1", "loose-2"]);
+  });
+
   it("gives a tag whose chats are all settled a settled box but no active box", () => {
-    const active = [taggedThread("a", "Billing"), taggedThread("b", null)];
-    const settled = [taggedThread("c", "Ops"), taggedThread("d", "Billing")];
+    const active = [
+      taggedThread("a", "Billing"),
+      taggedThread("a-2", "Billing"),
+      taggedThread("b", null),
+    ];
+    const settled = [
+      taggedThread("c", "Ops"),
+      taggedThread("c-2", "Ops"),
+      taggedThread("d", "Billing"),
+      taggedThread("d-2", "Billing"),
+    ];
     const tagNames = collectSidebarThreadTagNames([...active, ...settled]);
     expect(groupSidebarThreadsByTag(active, tagNames).boxes.map((box) => box.tagKey)).toEqual([
       "billing",
@@ -1091,6 +1126,54 @@ describe("navigation after parking a thread", () => {
   );
 });
 
+describe("groupSidebarThreadsByProject", () => {
+  it("keeps each project's threads together, newest project first, without reordering inside it", () => {
+    const thread = (id: string, projectId: string) => ({
+      id,
+      environmentId: "env",
+      projectId,
+    });
+    const grouped = groupSidebarThreadsByProject([
+      thread("a1", "a"),
+      thread("b1", "b"),
+      thread("a2", "a"),
+      thread("c1", "c"),
+      thread("b2", "b"),
+    ] as never[]) as Array<{ id: string }>;
+    expect(grouped.map((item) => item.id)).toEqual(["a1", "a2", "b1", "b2", "c1"]);
+  });
+});
+
+describe("isSidebarThreadDone", () => {
+  const finishedShell = (overrides: { status?: "completed" | "failed"; lastVisitedAt: string }) =>
+    presentThreadShell(localEnvironmentId, {
+      ...makeThreadFixture().source,
+      latestRunId: RunId.make("run-done-shelf"),
+      status: overrides.status ?? "completed",
+      latestRunCompletedAt: DateTime.makeUnsafe("2026-06-20T01:00:00.000Z"),
+      lastVisitedAt: DateTime.makeUnsafe(overrides.lastVisitedAt),
+    });
+  const done = (thread: ReturnType<typeof finishedShell>, wokeAt: string | null = null) =>
+    isSidebarThreadDone(thread, { lastVisitedAt: thread.lastVisitedAt ?? undefined, wokeAt });
+
+  it("holds a thread that finished since it was last opened, until it is opened again", () => {
+    expect(done(finishedShell({ lastVisitedAt: "2026-06-20T00:59:00.000Z" }))).toBe(true);
+    expect(done(finishedShell({ lastVisitedAt: "2026-06-20T01:01:00.000Z" }))).toBe(false);
+  });
+
+  it("leaves failed and freshly woken threads where they need you", () => {
+    expect(
+      done(finishedShell({ status: "failed", lastVisitedAt: "2026-06-20T00:59:00.000Z" })),
+    ).toBe(false);
+    expect(
+      done(
+        finishedShell({ lastVisitedAt: "2026-06-20T00:59:00.000Z" }),
+        "2026-06-20T01:02:00.000Z",
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("unseen completion with background work", () => {
   it.each([
     { kind: "command", status: "ready", topStatus: "done", receded: false, pill: "Completed" },
@@ -1233,22 +1316,31 @@ describe("Working shelf (beta)", () => {
     const items: readonly SidebarListItem[] = [
       marker("pinned-header"),
       row("p1", "pinned"),
+      marker("done-header"),
+      row("d1", "done"),
+      marker("working-header"),
+      row("w1", "working"),
       marker("pinned-divider"),
       row("a1", "active"),
       row("a2", "active"),
-      marker("working-header"),
-      row("w1", "working"),
       marker("settled-header"),
       row("s1", "settled"),
     ];
 
-    it("never drops into the Working shelf, and keeps it out of the inbox order", () => {
+    it("never drops into the Done or In progress shelves, and keeps them out of both orders", () => {
+      expect(resolveSidebarDropTarget(items, "a1", "d1")).toBeNull();
       expect(resolveSidebarDropTarget(items, "a1", "w1")).toBeNull();
       expect(resolveSidebarDropTarget(items, "p1", "a2")).toEqual({
         section: "active",
         pinnedOrder: [],
         activeOrder: ["a1", "a2", "p1"],
       });
+      expect(resolveSidebarDropTarget(items, "a2", sidebarMarkerId("done-header"))).toEqual({
+        section: "pinned",
+        pinnedOrder: ["p1", "a2"],
+        activeOrder: ["a1"],
+      });
+      expect(resolveSidebarDropVerb("active", "done")).toBeNull();
       expect(resolveSidebarDropVerb("active", "working")).toBeNull();
     });
 
