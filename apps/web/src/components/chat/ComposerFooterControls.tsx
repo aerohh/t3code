@@ -7,50 +7,76 @@ import type {
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { BotIcon, PencilRulerIcon } from "lucide-react";
-import { type ComponentProps, memo } from "react";
+import { type ComponentProps, memo, type ReactNode } from "react";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
-import { Select, SelectItem, SelectPopup, SelectValue } from "../ui/select";
+import { cn } from "~/lib/utils";
+import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { ComposerControl, ComposerControlIcon, ComposerSelectControl } from "./ComposerControl";
-import { useComposerMenuProps } from "./composerEventScope";
+import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import { selectFiveHourUsageWindow } from "./ContextWindowMeter.logic";
 import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 import { runtimeModeConfig } from "./runtimeModeConfig";
-import { useComposerMenuState } from "./useComposerMenuState";
+import { type WorkEntryIconName } from "./TimelineToolActivityIcon";
+import { SettingsCardRow } from "./TraitsPicker";
 
 export type RuntimeModeOption = { mode: RuntimeMode } & (typeof runtimeModeConfig)[RuntimeMode];
 const supervisedRuntimeModeOption = {
   mode: "approval-required" as const,
   ...runtimeModeConfig["approval-required"],
 };
-export const ComposerFooterModeControls = memo(function ComposerFooterModeControls(props: {
-  showInteractionModeToggle: boolean;
-  interactionMode: ProviderInteractionMode;
+
+export function ComposerAccessControl(props: {
   runtimeMode: RuntimeMode;
   runtimeModeOptions: ReadonlyArray<RuntimeModeOption>;
-  size?: "sm" | "xs";
-  hidden?: boolean;
-  onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
-  const size = props.size ?? "sm";
-  const composerFloatingLayerProps = useComposerMenuProps();
-  const [open, setOpen] = useComposerMenuState(props.hidden);
-  const runtimeModeOption =
+  const activeOption =
     props.runtimeModeOptions.find((option) => option.mode === props.runtimeMode) ??
     supervisedRuntimeModeOption;
-  const RuntimeModeIcon = runtimeModeOption.icon;
-  const interactionModeTooltip =
+  const isFullAccess = activeOption.mode === "full-access";
+  return (
+    <SettingsCardRow icon={activeOption.icon} label="Access" warning={isFullAccess}>
+      <ToggleGroup
+        aria-label="Access"
+        variant="segmented"
+        className="mt-1.5 w-full"
+        value={[activeOption.mode]}
+        onValueChange={(next) => {
+          const mode = props.runtimeModeOptions.find((option) => option.mode === next[0])?.mode;
+          if (mode) props.onRuntimeModeChange(mode);
+        }}
+      >
+        {props.runtimeModeOptions.map((option) => (
+          <ToggleGroupItem key={option.mode} value={option.mode} className="flex-1">
+            <span className={cn(option.mode === "full-access" && isFullAccess && "text-warning")}>
+              {option.shortLabel}
+            </span>
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+      <p className={cn("pt-1.5 text-xs", isFullAccess ? "text-warning" : "text-muted-foreground")}>
+        {activeOption.description}
+      </p>
+    </SettingsCardRow>
+  );
+}
+
+export const ComposerInteractionModeToggle = memo(function ComposerInteractionModeToggle(props: {
+  interactionMode: ProviderInteractionMode;
+  size?: "sm" | "xs";
+  onToggleInteractionMode: () => void;
+}) {
+  const size = props.size ?? "sm";
+  const tooltip =
     props.interactionMode === "plan"
       ? "Plan mode. Click to return to normal build mode"
       : "Default mode. Click to enter plan mode";
-
-  const interactionModeToggle = props.showInteractionModeToggle ? (
+  return (
     <Tooltip>
       <TooltipTrigger
         render={
@@ -60,7 +86,7 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
             aria-pressed={props.interactionMode === "plan"}
             type="button"
             onClick={props.onToggleInteractionMode}
-            aria-label={interactionModeTooltip}
+            aria-label={tooltip}
           />
         }
       >
@@ -77,66 +103,12 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
             opticalSize={size === "xs" ? "default" : "large"}
           />
         )}
-        <span data-composer-control-label className="sr-only sm:not-sr-only">
+        <span data-composer-control-label className="sr-only">
           {props.interactionMode === "plan" ? "Plan" : "Build"}
         </span>
       </TooltipTrigger>
-      <TooltipPopup side="top">{interactionModeTooltip}</TooltipPopup>
+      <TooltipPopup side="top">{tooltip}</TooltipPopup>
     </Tooltip>
-  ) : null;
-
-  return (
-    <>
-      <Tooltip>
-        <Select
-          open={open}
-          onOpenChange={setOpen}
-          value={props.runtimeMode}
-          onValueChange={(value) => props.onRuntimeModeChange(value!)}
-        >
-          <TooltipTrigger
-            render={
-              <ComposerSelectControl
-                data-composer-shortcut="composer.mode"
-                size={size}
-                aria-label="Runtime mode"
-              />
-            }
-          >
-            <ComposerControlIcon icon={RuntimeModeIcon} size={size} />
-            <SelectValue data-composer-control-label>{runtimeModeOption.label}</SelectValue>
-          </TooltipTrigger>
-          <SelectPopup alignItemWithTrigger={false} {...composerFloatingLayerProps}>
-            {props.runtimeModeOptions.map((option) => {
-              const OptionIcon = option.icon;
-              return (
-                <SelectItem
-                  key={option.mode}
-                  value={option.mode}
-                  hideIndicator
-                  className="min-w-64"
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="grid min-w-0 flex-1 gap-0.5">
-                      <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
-                        <OptionIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                        {option.label}
-                      </span>
-                      <span className="text-muted-foreground text-xs leading-4">
-                        {option.description}
-                      </span>
-                    </div>
-                  </div>
-                </SelectItem>
-              );
-            })}
-          </SelectPopup>
-        </Select>
-        <TooltipPopup side="top">{runtimeModeOption.description}</TooltipPopup>
-      </Tooltip>
-
-      {interactionModeToggle}
-    </>
   );
 });
 
@@ -157,6 +129,7 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   } | null;
   isRunning: boolean;
   canInterrupt: boolean;
+  runningStepIcon: WorkEntryIconName | null;
   followUpBehavior: "queue" | "steer";
   canSteer: boolean;
   alternateShortcutLabel: string | null;
@@ -181,6 +154,7 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   compactBeforeSendTokens: number | null;
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
+  controls?: ReactNode;
 }) {
   // Read on the minute so a window drops once its reset time passes, without waiting for a turn.
   const nowMinute = useNowMinute();
@@ -202,12 +176,14 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
       ) : props.reserveContextWindowMeter ? (
         <ContextWindowMeterPlaceholder />
       ) : null}
+      {props.controls}
       <ComposerPrimaryActions
         compact={props.compact}
         canOperateThread={props.canOperateThread}
         pendingAction={props.pendingAction}
         isRunning={props.isRunning}
         canInterrupt={props.canInterrupt}
+        runningStepIcon={props.runningStepIcon}
         followUpBehavior={props.followUpBehavior}
         canSteer={props.canSteer}
         alternateShortcutLabel={props.alternateShortcutLabel}

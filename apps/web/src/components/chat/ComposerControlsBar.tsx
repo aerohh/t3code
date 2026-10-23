@@ -1,12 +1,13 @@
 import type { ChatComposerProps } from "./ChatComposer";
-import type { PromptUltrathink } from "./TraitsPicker";
+import { getChipEffortLabel, type PromptUltrathink } from "./TraitsPicker";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import { type AppModelOption } from "../../modelSelection";
 import { CircleAlertIcon } from "lucide-react";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerControl, ComposerControlSeparator } from "./ComposerControl";
 import {
-  ComposerFooterModeControls,
+  ComposerAccessControl,
+  ComposerInteractionModeToggle,
   ComposerModelPicker,
   type RuntimeModeOption,
 } from "./ComposerFooterControls";
@@ -20,10 +21,7 @@ import {
   type ServerProvider,
 } from "@t3tools/contracts";
 import { cn } from "~/lib/utils";
-import {
-  renderProviderTraitsMenuContent,
-  renderProviderTraitsPicker,
-} from "./composerProviderState";
+import { renderProviderTraitsInlineControls } from "./composerProviderState";
 import type { useComposerProviderModel } from "./useComposerProviderModel";
 
 /**
@@ -132,64 +130,20 @@ export function ComposerControlsBar(props: {
     modelPickerIconClassName,
     getModelDisabledReason,
   } = props;
-  const providerTraitsMenuContent = renderProviderTraitsMenuContent({
-    provider: selectedProvider,
-    instanceId: selectedInstanceId,
-    ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
-    ...(routeKind === "draft" && draftId ? { draftId } : {}),
-    model: selectedModel,
-    models: selectedProviderModels,
-    modelOptions: composerModelOptions?.[selectedInstanceId],
-    reportedModelSelection,
-    promptUltrathink,
-    onPromptEdit,
-    planModeEnabled,
-  });
-  const providerTraitsPickerInput = {
-    provider: selectedProvider,
-    instanceId: selectedInstanceId,
-    ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
-    ...(routeKind === "draft" && draftId ? { draftId } : {}),
-    model: selectedModel,
-    models: selectedProviderModels,
-    modelOptions: composerModelOptions?.[selectedInstanceId],
-    reportedModelSelection,
-    promptUltrathink,
-    onPromptEdit,
-    planModeEnabled,
-    isComposerOwned: true,
-  } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
-  const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
-  const restingProviderTraitsPicker = renderProviderTraitsPicker({
-    ...providerTraitsPickerInput,
-    size: composerControlsCollapsed ? "xs" : "sm",
-    hidden: composerControlsHidden || restingHiddenBlockCount > 1,
-  });
-  const restingBlockDefs = [
-    ...(providerTraitsPicker
-      ? [
-          {
-            id: "traits",
-            content: restingProviderTraitsPicker,
-          },
-        ]
-      : []),
-    {
-      id: "mode",
-      content: (
-        <ComposerFooterModeControls
-          showInteractionModeToggle={planModeUiEnabled}
-          interactionMode={interactionMode}
-          runtimeMode={compatibleRuntimeMode}
-          runtimeModeOptions={compatibleRuntimeModeOptions}
-          size={composerControlsCollapsed ? "xs" : "sm"}
-          hidden={composerControlsHidden || restingHiddenBlockCount > 0}
-          onToggleInteractionMode={toggleInteractionMode}
-          onRuntimeModeChange={handleRuntimeModeChange}
-        />
-      ),
-    },
-  ];
+  const restingBlockDefs = planModeUiEnabled
+    ? [
+        {
+          id: "mode",
+          content: (
+            <ComposerInteractionModeToggle
+              interactionMode={interactionMode}
+              size={composerControlsCollapsed ? "xs" : "sm"}
+              onToggleInteractionMode={toggleInteractionMode}
+            />
+          ),
+        },
+      ]
+    : [];
   const hiddenRestingBlockIds = restingBlockDefs
     .slice(restingBlockDefs.length - restingHiddenBlockCount)
     .map((def) => def.id);
@@ -228,7 +182,7 @@ export function ComposerControlsBar(props: {
               !showInlineRestingControls &&
                 "@max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none",
             )
-          : "-ms-2 min-w-13"
+          : "min-w-13"
       }
       terminalOpen={terminalOpen}
       open={modelPickerOpen}
@@ -247,6 +201,44 @@ export function ComposerControlsBar(props: {
           }
         : {})}
       onOpenChange={onModelPickerOpenChange}
+      triggerShortcuts="composer.effort composer.mode"
+      triggerDetail={getChipEffortLabel({
+        provider: selectedProvider,
+        instanceId: selectedInstanceId,
+        model: selectedModel,
+        models: selectedProviderModels,
+        modelOptions: composerModelOptions?.[selectedInstanceId],
+        reportedModelSelection,
+        promptUltrathink,
+        planModeEnabled,
+      })}
+      // Built only while open, so a closed card never re-renders the picker on every keystroke.
+      settingsCardControls={
+        modelPickerOpen ? (
+          <>
+            {renderProviderTraitsInlineControls({
+              provider: selectedProvider,
+              instanceId: selectedInstanceId,
+              ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
+              ...(routeKind === "draft" && draftId ? { draftId } : {}),
+              model: selectedModel,
+              models: selectedProviderModels,
+              modelOptions: composerModelOptions?.[selectedInstanceId],
+              reportedModelSelection,
+              promptUltrathink,
+              onPromptEdit,
+              planModeEnabled,
+            })}
+            {inSideChatCard ? null : (
+              <ComposerAccessControl
+                runtimeMode={compatibleRuntimeMode}
+                runtimeModeOptions={compatibleRuntimeModeOptions}
+                onRuntimeModeChange={handleRuntimeModeChange}
+              />
+            )}
+          </>
+        ) : null
+      }
       getModelDisabledReason={getModelDisabledReason}
       onOpenProviderSetup={onOpenProviderSetup}
     />
@@ -268,15 +260,7 @@ export function ComposerControlsBar(props: {
     </ComposerControl>
   ) : inSideChatCard ? (
     sideChatPickersShown ? (
-      <>
-        {composerModelPicker}
-        {providerTraitsPicker ? (
-          <>
-            <ComposerControlSeparator size={composerControlsCollapsed ? "xs" : "sm"} />
-            {restingProviderTraitsPicker}
-          </>
-        ) : null}
-      </>
+      composerModelPicker
     ) : null
   ) : (
     <>
@@ -323,16 +307,9 @@ export function ComposerControlsBar(props: {
         >
           <CompactComposerControlsMenu
             interactionMode={interactionMode}
-            runtimeMode={compatibleRuntimeMode}
-            runtimeModeOptions={compatibleRuntimeModeOptions}
             size={composerControlsCollapsed ? "xs" : "sm"}
             hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
-            showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}
-            traitsMenuContent={
-              hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
-            }
             onToggleInteractionMode={toggleInteractionMode}
-            onRuntimeModeChange={handleRuntimeModeChange}
           />
         </div>
       </>

@@ -83,7 +83,7 @@ export interface BranchToolbarHandle {
 }
 
 interface BranchToolbarProps {
-  layout?: "composer" | "panel";
+  layout?: "composer" | "panel" | "sentence";
   panelSection?: "all" | "workspace" | "branch";
   forceNewWorktree?: boolean;
   ref?: Ref<BranchToolbarHandle>;
@@ -756,6 +756,76 @@ export const BranchToolbar = memo(function BranchToolbar({
             onStartFromOriginChange={onStartFromOriginChange}
             {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
             {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+          />
+        ) : null}
+      </div>
+    );
+  }
+
+  if (layout === "sentence") {
+    return (
+      <div
+        data-composer-context-sentence
+        className={cn(
+          // Hangs below the bar so the bar's glass, sized to its parent, stays the bar's own height.
+          "absolute inset-x-0 top-full mt-2.5 flex flex-wrap items-center justify-center gap-x-1 gap-y-0.5 text-xs font-normal text-muted-foreground/70",
+          !contextStripVisible && "pointer-events-none invisible",
+        )}
+      >
+        {showEnvironmentIndicator && availableEnvironments ? (
+          <>
+            <BranchToolbarEnvironmentSelector
+              autoEnvironmentLabel={autoEnvironmentLabel}
+              onAutoEnvironment={onAutoEnvironment}
+              envLocked={envLocked}
+              environmentId={environmentId}
+              availableEnvironments={availableEnvironments}
+              {...(showEnvironmentPicker ? { onEnvironmentChange } : {})}
+              {...(addTargets.length > 0 ? { onAddToMachine: () => onAddToMachine(null) } : {})}
+            />
+            {showGitControls ? <span aria-hidden="true">·</span> : null}
+          </>
+        ) : null}
+        {showGitControls ? (
+          <>
+            <span>{showEnvironmentIndicator ? "in" : "Working in"}</span>
+            <BranchToolbarEnvModeSelector
+              forceNewWorktree={forceNewWorktree}
+              envLocked={envModeLocked}
+              effectiveEnvMode={effectiveEnvMode}
+              activeWorktreePath={activeWorktreePath}
+              onEnvModeChange={onEnvModeChange}
+              previousWorktreeLabel={previousWorktreeLabel}
+              previousWorktreeBranch={previousWorktreeSeed?.branch ?? null}
+              onUsePreviousWorktree={onUsePreviousWorktree}
+            />
+            <span>on</span>
+            <BranchToolbarBranchSelector
+              forceNewWorktree={forceNewWorktree}
+              ref={branchSelectorRef}
+              className="min-w-0 flex-initial"
+              environmentId={environmentId}
+              threadId={threadId}
+              {...(draftId ? { draftId } : {})}
+              envLocked={envLocked}
+              effectiveEnvModeOverride={effectiveEnvMode}
+              {...(activeThreadBranchOverride !== undefined ? { activeThreadBranchOverride } : {})}
+              {...(onActiveThreadBranchOverrideChange
+                ? { onActiveThreadBranchOverrideChange }
+                : {})}
+              startFromOrigin={startFromOrigin}
+              onStartFromOriginChange={onStartFromOriginChange}
+              {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
+              {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+            />
+          </>
+        ) : null}
+        {composerControlsHostRef ? (
+          <div
+            ref={composerControlsHostRef}
+            data-composer-context-control
+            data-chat-resting-composer-controls-host="true"
+            className="flex min-w-0 items-center"
           />
         ) : null}
       </div>

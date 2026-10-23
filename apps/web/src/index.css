@@ -281,6 +281,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --color-message-action: var(--message-action);
   --color-message-action-foreground: var(--message-action-foreground);
   --color-message-action-hover: var(--message-action-hover);
+  --color-stop-action: var(--stop-action);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--contrast-sidebar-foreground);
   --color-sidebar-muted-foreground: var(--contrast-sidebar-muted-foreground);
@@ -1149,6 +1150,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --message-action: var(--primary);
   --message-action-foreground: var(--primary-foreground);
   --message-action-hover: color-mix(in srgb, var(--primary) 90%, var(--background));
+  --stop-action: color-mix(in oklab, var(--foreground) 56%, var(--destructive));
   --accent: var(--color-zinc-100);
   --accent-foreground: var(--color-zinc-900);
   --error: var(--color-red-500);

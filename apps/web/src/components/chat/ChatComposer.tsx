@@ -104,7 +104,10 @@ import { ComposerStashMenu } from "./ComposerStashMenu";
 import { useComposerTriggerState } from "./useComposerTriggerState";
 import { useComposerMenuItems } from "./useComposerMenuItems";
 import { useComposerFocusState } from "./useComposerFocusState";
-import { useComposerMultilinePrompt } from "./useComposerMultilinePrompt";
+import {
+  useComposerMultilinePrompt,
+  useSlimComposerPromptOnOwnRow,
+} from "./useComposerMultilinePrompt";
 import {
   reconcileAttachmentContextReferences,
   useRetainedContextPayloads,
@@ -160,6 +163,7 @@ import {
 } from "~/lib/composerContextReferences";
 import {
   attachmentContextRecord,
+  imageContextReference,
   uploadedAttachmentContextRecord,
   previewAnnotationContextId,
   previewAnnotationContextRecord,
@@ -174,6 +178,7 @@ import {
   environmentContextReference,
 } from "~/lib/composerContextRecords";
 import { rememberCopiedComposerAttachments } from "~/lib/copiedComposerAttachments";
+import { requestConfirmDialog } from "~/confirmDialog";
 import { useThreadContextDrop, threadContextDropTargetProps } from "./threadContextDrag";
 import { readThreadShell } from "~/state/entities";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
@@ -187,6 +192,7 @@ import {
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import {
   ComposerAttachButton,
+  ComposerAttachmentFileChips,
   ComposerAttachmentFileList,
   ComposerAttachmentMediaRow,
   ComposerFilePreviewDialog,
@@ -195,6 +201,7 @@ import {
 } from "./ComposerAttachmentStrip";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerFooterPrimaryActions } from "./ComposerFooterControls";
+import { type WorkEntryIconName } from "./TimelineToolActivityIcon";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
@@ -388,6 +395,7 @@ export interface ChatComposerProps {
 
   phase: SessionPhase;
   canInterrupt: boolean;
+  runningStepIcon: WorkEntryIconName | null;
   isConnecting: boolean;
   isSendBusy: boolean;
   canResume: boolean;
@@ -554,6 +562,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     projectSelectionRequired,
     phase,
     canInterrupt,
+    runningStepIcon,
     isConnecting,
     isSendBusy,
     canResume,
@@ -2383,6 +2392,44 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerControlsVisibleInStrip =
     composerControlsCollapsed && restingControlsHost !== null && restingControlsVisible;
   const composerControlsHidden = composerControlsCollapsed && !restingControlsVisible;
+  // On desktop the bar keeps one row and grows upward as the prompt wraps.
+  // Answers, plan follow-ups, approvals and errors need the wider footer row,
+  // and the phone layouts are their own design.
+  const isComposerSlim =
+    !inSideChatCard &&
+    !isComposerResting &&
+    !isComposerCollapsedMobile &&
+    !isMobileViewport &&
+    !isComposerApprovalState &&
+    pendingUserInputs.length === 0 &&
+    !showPlanFollowUpPrompt &&
+    composerSubmissionError === null &&
+    providerInputSubmissionError === null;
+  // An empty new line has no text to measure, so a line break alone also earns the prompt its own row.
+  const slimPromptOnOwnRow =
+    useSlimComposerPromptOnOwnRow(composerMenuAnchor, isComposerSlim) ||
+    (isComposerSlim && prompt.includes("\n"));
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scroll listener and mutation observer on the prompt editor while the one-line bar shows
+  useEffect(() => {
+    const editor = composerMenuAnchor?.querySelector<HTMLElement>(
+      '[data-testid="composer-editor"]',
+    );
+    if (!editor || !isComposerSlim) return;
+    // Written to the element so scrolling a long prompt never re-renders the composer.
+    const markScrolled = () => {
+      editor.dataset.scrolledFromTop = editor.scrollTop > 0 ? "true" : "false";
+    };
+    markScrolled();
+    editor.addEventListener("scroll", markScrolled, { passive: true });
+    // Clearing or replacing the prompt shrinks it without a scroll event.
+    const contentObserver = new MutationObserver(markScrolled);
+    contentObserver.observe(editor, { childList: true, characterData: true, subtree: true });
+    return () => {
+      editor.removeEventListener("scroll", markScrolled);
+      contentObserver.disconnect();
+      delete editor.dataset.scrolledFromTop;
+    };
+  }, [composerMenuAnchor, isComposerSlim]);
   if (composerControlsHidden && isComposerModelPickerOpen) {
     setIsComposerModelPickerOpen(false);
   }
@@ -3334,6 +3381,41 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ],
   );
 
+  const clearTrayAttachments = () => {
+    const images = expandedComposerImages;
+    const fileIds = [...composerVideos, ...composerOtherFiles].map((file) => file.id);
+    const removeAll = () => {
+      for (const image of images) removeComposerImageFromDraft(image.id);
+      for (const fileId of fileIds) removeComposerFileFromDraft(fileId);
+    };
+    const promptContextIds = new Set(collectInlineContextIds(promptRef.current));
+    const referencedCount = images.filter((image) =>
+      promptContextIds.has(imageContextReference(image).contextId),
+    ).length;
+    if (referencedCount === 0) {
+      removeAll();
+      return;
+    }
+    const confirmation = requestConfirmDialog(
+      `Remove all attachments from the message?\n${referencedCount === 1 ? "One image is" : `${referencedCount} images are`} referenced in your text; removing them also removes every reference.`,
+      { variant: "destructive" },
+    );
+    if (!confirmation) {
+      removeAll();
+      return;
+    }
+    void confirmation.then((confirmed) => {
+      if (confirmed) removeAll();
+    });
+  };
+
+  // Phones and the collapsed bar keep attachments inside the box; the phone layout is its own design.
+  // Without the + there is no tray to open, so attachments stay in the box rather than hide.
+  const showAttachmentTray =
+    !isMobileViewport &&
+    !isComposerCollapsedMobile &&
+    !isComposerResting &&
+    showComposerAttachAction;
   // Built outside the form's JSX so typing, which rebuilds that JSX, leaves them cached.
   const composerAttachmentMediaRow =
     !isComposerCollapsedMobile &&
@@ -3342,6 +3424,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       expandedComposerImages.length > 0 ||
       preparingComposerImages.length > 0) ? (
       <ComposerAttachmentMediaRow
+        placement={showAttachmentTray ? "tray" : "editor"}
         images={composerImages}
         expandedImages={expandedComposerImages}
         preparingImages={preparingComposerImages}
@@ -3363,7 +3446,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       />
     ) : null;
   const composerAttachmentFileList =
-    !isComposerCollapsedMobile && composerOtherFiles.length > 0 ? (
+    !isComposerCollapsedMobile && !showAttachmentTray && composerOtherFiles.length > 0 ? (
       <ComposerAttachmentFileList
         files={composerOtherFiles}
         resolvedTheme={resolvedTheme}
@@ -3377,10 +3460,32 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         onRemoveFile={removeComposerFileFromDraft}
       />
     ) : null;
+  const trayAttachmentCount = showAttachmentTray
+    ? expandedComposerImages.length + composerVideos.length + composerOtherFiles.length
+    : 0;
   const composerAttachButton = showComposerAttachAction ? (
     <ComposerAttachButton
       addComposerAttachments={addComposerAttachments}
       focusComposer={focusComposer}
+      attachedCount={trayAttachmentCount}
+      attachedItems={
+        <>
+          {composerAttachmentMediaRow}
+          <ComposerAttachmentFileChips
+            files={composerOtherFiles}
+            resolvedTheme={resolvedTheme}
+            supportsAttachmentUploads={supportsAttachmentUploads}
+            maxFileAttachmentBytes={maxFileAttachmentBytes}
+            fileStagingLimit={fileStagingLimit}
+            environmentId={environmentId}
+            attachmentDraftTarget={attachmentDraftTarget}
+            canOperateThread={canOperateThread}
+            onPreviewFile={setPreviewFileId}
+            onRemoveFile={removeComposerFileFromDraft}
+          />
+        </>
+      }
+      onClearAttached={clearTrayAttachments}
     />
   ) : null;
   return (
@@ -3557,8 +3662,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             ref={composerSurfaceRef}
             data-chat-composer-surface="true"
             data-chat-composer-mobile-collapsed={isComposerCollapsedMobile ? "true" : "false"}
+            data-chat-composer-slim={isComposerSlim ? "true" : undefined}
             className={cn(
-              "rounded-2xl transition-[background-color] duration-200",
+              "rounded-3xl transition-[background-color] duration-200",
+              isComposerSlim && "flex items-end",
+              slimPromptOnOwnRow && "flex-wrap",
               "in-data-[thread-context-over]:bg-accent/45 in-data-[thread-context-over]:ring-1 in-data-[thread-context-over]:ring-inset in-data-[thread-context-over]:ring-primary/70",
               isDragOverComposer ? "bg-accent/45 ring-1 ring-inset ring-primary/70" : null,
               projectSelectionRequired ? "opacity-75" : null,
@@ -3629,6 +3737,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 "pt-3.5 sm:pt-4",
                 isComposerCollapsedMobile && "hidden",
                 isComposerResting && "py-2 sm:py-2",
+                isComposerSlim && "order-2 min-w-0 flex-1 px-1.5 py-3 sm:px-1.5 sm:py-3",
+                slimPromptOnOwnRow && "order-1 basis-full px-4 pb-0 sm:px-4 sm:pb-0",
               )}
             >
               {isStashMenuOpen && !composerMenuOpen && (
@@ -3685,7 +3795,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   />
                 )}
 
-              {composerAttachmentMediaRow}
+              {showAttachmentTray ? null : composerAttachmentMediaRow}
 
               {composerAttachmentFileList}
 
@@ -3731,10 +3841,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     containerClassName={cn(isComposerResting && "min-w-0 flex-1")}
                     className={cn(
                       showMobilePendingAnswerActions && "max-sm:pb-12",
+                      isComposerSlim &&
+                        "max-h-26 min-h-6 leading-6 data-[scrolled-from-top=true]:mask-t-from-75%",
                       isComposerResting &&
                         "my-0 max-h-8 min-h-8 overflow-hidden py-0 whitespace-pre! leading-8",
                     )}
                     placeholderClassName={cn(
+                      isComposerSlim && "truncate whitespace-nowrap leading-6",
                       isComposerResting &&
                         "flex items-center overflow-hidden whitespace-nowrap leading-8",
                     )}
@@ -3762,7 +3875,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                               ? "Choose a project above to start a thread"
                               : showProviderUnavailable
                                 ? "Enable a provider in Settings to send a message"
-                                : DEFAULT_COMPOSER_PLACEHOLDER
+                                : phase === "running"
+                                  ? followUpBehavior === "steer"
+                                    ? "Working… type to steer the agent"
+                                    : "Working… type to queue a follow-up"
+                                  : isComposerSlim
+                                    ? "Ask anything…"
+                                    : DEFAULT_COMPOSER_PLACEHOLDER
                     }
                     disabled={
                       isConnecting ||
@@ -3823,18 +3942,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     "absolute right-px z-10 h-12 w-auto gap-0 py-0 sm:gap-0 sm:py-0",
                   isComposerResting &&
                     (showInlineRestingControls ? "bottom-[calc(2rem+1px)]" : "bottom-px"),
+                  isComposerSlim && "contents",
                 )}
               >
                 <div
-                  ref={attachExpandedComposerControls}
-                  data-chat-composer-controls="left"
-                  data-chat-composer-footer-controls="true"
+                  data-chat-composer-attach="true"
                   className={cn(
-                    "relative -m-1 -ms-3.5 flex min-w-0 flex-1 items-center gap-0 overflow-x-auto p-1 ps-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+                    isComposerSlim
+                      ? "flex min-w-0 items-center"
+                      : "relative -m-1 -ms-3.5 flex min-w-0 flex-1 items-center gap-0 overflow-x-auto p-1 ps-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
                     isComposerResting && "hidden",
+                    isComposerSlim && "order-1 flex-none self-end py-2.5 ps-2.5",
+                    slimPromptOnOwnRow && "order-2",
                   )}
                 >
-                  {composerControlsCollapsed ? null : composerControls}
+                  {isComposerResting ? null : composerAttachButton}
                 </div>
 
                 <div
@@ -3844,7 +3966,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   data-chat-composer-primary-actions-compact={
                     isComposerPrimaryActionsCompact ? "true" : "false"
                   }
-                  className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
+                  className={cn(
+                    "flex min-w-0 shrink-0 flex-nowrap items-center justify-end gap-2",
+                    isComposerSlim && "order-3 self-end py-2 pe-2",
+                    slimPromptOnOwnRow && "ms-auto",
+                  )}
                 >
                   {inSideChatCard ? (
                     <Tooltip>
@@ -3867,8 +3993,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       </TooltipPopup>
                     </Tooltip>
                   ) : null}
-                  {composerAttachButton}
+                  {isComposerResting ? composerAttachButton : null}
                   <ComposerFooterPrimaryActions
+                    controls={
+                      composerControlsCollapsed ? null : (
+                        <div
+                          ref={attachExpandedComposerControls}
+                          data-chat-composer-controls="expanded"
+                          data-chat-composer-footer-controls="true"
+                          className="flex min-w-0 items-center gap-1"
+                        >
+                          {composerControls}
+                        </div>
+                      )
+                    }
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
                     canOperateThread={canOperateThread}
                     activeContextWindow={
@@ -3882,6 +4020,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     pendingAction={pendingPrimaryAction}
                     isRunning={phase === "running"}
                     canInterrupt={canInterrupt}
+                    runningStepIcon={runningStepIcon}
                     followUpBehavior={followUpBehavior}
                     canSteer={!isCompacting}
                     alternateShortcutLabel={shortcutLabelForCommand(
