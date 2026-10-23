@@ -57,6 +57,22 @@ export function selectableProviderOptionChoices(
   return descriptor.options;
 }
 
+// Ultracode adds multi-agent orchestration and Ultrathink rewrites the prompt,
+// so neither belongs on the ordered "how hard it thinks" scale.
+const REASONING_MODE_CHOICE_IDS: ReadonlySet<string> = new Set(["ultracode", "ultrathink"]);
+
+export function splitReasoningChoices(
+  descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
+) {
+  const isMode = (choice: (typeof descriptor.options)[number]) =>
+    REASONING_MODE_CHOICE_IDS.has(choice.id) ||
+    (descriptor.promptInjectedValues?.includes(choice.id) ?? false);
+  return {
+    levels: descriptor.options.filter((choice) => !isMode(choice)),
+    modes: descriptor.options.filter(isMode),
+  };
+}
+
 export function getPromptControlledTraits(
   descriptors: ReadonlyArray<ProviderOptionDescriptor>,
   prompt: string,

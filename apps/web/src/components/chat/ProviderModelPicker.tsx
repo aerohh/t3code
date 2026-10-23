@@ -5,7 +5,8 @@ import {
   type ProviderDriverKind,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
-import { memo, useEffect, useState } from "react";
+import { ChevronLeftIcon, ChevronRightIcon, LayersIcon } from "lucide-react";
+import { memo, type ReactNode, useEffect, useRef, useState } from "react";
 import { Badge } from "../ui/badge";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -15,6 +16,7 @@ import { ChatGptSharingControl } from "./ChatGptSharingControl";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 import {
   ModelEsque,
+  getChipDisplayModelName,
   getTriggerDisplayModelLabel,
   getTriggerDisplayModelName,
 } from "./providerIconUtils";
@@ -50,6 +52,12 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   triggerLabel?: string;
   triggerAriaLabel?: string;
   onOpenChange?: (open: boolean) => void;
+  /**
+   * Opens on a settings card that holds these controls under the current
+   * model; the model list becomes a page reached from the card.
+   */
+  settingsCardControls?: ReactNode;
+  triggerShortcuts?: string;
   onOpenProviderSetup?: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
   onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
@@ -57,6 +65,20 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const composerFloatingLayerProps = useComposerMenuProps();
   const [uncontrolledIsMenuOpen, setUncontrolledIsMenuOpen] = useState(false);
   const isMenuOpen = props.open ?? uncontrolledIsMenuOpen;
+  const hasSettingsCard = props.settingsCardControls !== undefined;
+  const [showModelList, setShowModelList] = useState(false);
+  const [wasMenuOpen, setWasMenuOpen] = useState(isMenuOpen);
+  if (wasMenuOpen !== isMenuOpen) {
+    setWasMenuOpen(isMenuOpen);
+    if (isMenuOpen) setShowModelList(false);
+  }
+  const modelListVisible = !hasSettingsCard || showModelList;
+  const settingsCardModelRowRef = useRef<HTMLButtonElement>(null);
+  // Leaving the model list unmounts its focused search box; without this,
+  // focus falls outside the popup and Escape no longer closes it.
+  useEffect(() => {
+    if (isMenuOpen && !modelListVisible) settingsCardModelRowRef.current?.focus();
+  }, [isMenuOpen, modelListVisible]);
   const size = props.size ?? "sm";
 
   const activeEntry =
@@ -81,6 +103,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const triggerLabel = selectedModel
     ? `${getTriggerDisplayModelLabel(selectedModel)}${selectedModel.isUnavailable ? " (Unavailable)" : ""}`
     : triggerTitle;
+  const cardModelName =
+    selectedModel && activeEntry
+      ? getChipDisplayModelName(selectedModel, activeEntry.displayName)
+      : triggerTitle;
   const showInstanceBadge =
     activeEntry !== null && shouldShowInstanceBadge(activeEntry, props.instanceEntries);
 
@@ -142,6 +168,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const handleInstanceModelChange = (instanceId: ProviderInstanceId, model: string) => {
     if (props.disabled) return;
     props.onInstanceModelChange(instanceId, model);
+    if (hasSettingsCard) {
+      setShowModelList(false);
+      return;
+    }
     setIsMenuOpen(false);
   };
 
@@ -197,8 +227,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             aria-label={props.triggerAriaLabel ?? allModelNames}
             size={size}
             data-chat-provider-model-picker="true"
+            data-composer-shortcut={props.triggerShortcuts}
             className={cn(
               "min-w-0 shrink justify-between whitespace-nowrap",
+              hasSettingsCard && "rounded-full bg-foreground/6 hover:bg-foreground/10",
               props.compact
                 ? "max-w-42 shrink-0"
                 : !props.isComposerOwned && "max-w-48 sm:max-w-56",
@@ -259,7 +291,9 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                 />
               }
             >
-              {props.triggerLabel ?? multipleLabel ?? triggerTitle}
+              {props.triggerLabel ??
+                multipleLabel ??
+                (hasSettingsCard ? cardModelName : triggerTitle)}
             </TooltipTrigger>
             <TooltipPopup side="top">{triggerTooltipContent}</TooltipPopup>
           </Tooltip>
@@ -269,9 +303,11 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             </Badge>
           ) : null}
         </span>
-        <span aria-hidden="true" className="flex items-center">
-          <ComposerControlChevron size={size} />
-        </span>
+        {hasSettingsCard ? null : (
+          <span aria-hidden="true" className="flex items-center">
+            <ComposerControlChevron size={size} />
+          </span>
+        )}
       </PopoverTrigger>
       <PopoverPopup
         {...(props.isComposerOwned ? composerFloatingLayerProps : {})}
@@ -280,34 +316,98 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         padding="none"
         touchBackdrop
       >
-        <ModelPickerContent
-          environmentId={props.environmentId}
-          activeInstanceId={activeInstanceId}
-          model={props.model}
-          {...(props.selectedModels !== undefined ? { selectedModels: props.selectedModels } : {})}
-          {...(props.onToggleModel
-            ? {
-                onToggleModel: (instanceId: ProviderInstanceId, model: string) => {
-                  if (!props.disabled) props.onToggleModel?.(instanceId, model);
-                },
-              }
-            : {})}
-          lockedProvider={props.lockedProvider}
-          lockedContinuationGroupKey={props.lockedContinuationGroupKey ?? null}
-          instanceEntries={props.instanceEntries}
-          {...(props.keybindings ? { keybindings: props.keybindings } : {})}
-          modelOptionsByInstance={props.modelOptionsByInstance}
-          terminalOpen={props.terminalOpen ?? false}
-          onRequestClose={() => setIsMenuOpen(false)}
-          {...(props.onOpenProviderSetup ? { onOpenProviderSetup: props.onOpenProviderSetup } : {})}
-          {...(props.getModelDisabledReason
-            ? { getModelDisabledReason: props.getModelDisabledReason }
-            : {})}
-          onInstanceModelChange={handleInstanceModelChange}
-        />
-        {props.selectedModels === undefined ? (
-          <ChatGptSharingControl provider={activeEntry?.snapshot ?? null} />
-        ) : null}
+        {modelListVisible ? (
+          <>
+            {hasSettingsCard ? (
+              <button
+                type="button"
+                className="flex w-full cursor-pointer items-center gap-2 border-b px-3 py-2.5 font-medium text-foreground text-sm hover:bg-accent/60"
+                onClick={() => setShowModelList(false)}
+              >
+                <ChevronLeftIcon aria-hidden="true" className="size-4 text-muted-foreground" />
+                Model
+              </button>
+            ) : null}
+            <ModelPickerContent
+              environmentId={props.environmentId}
+              activeInstanceId={activeInstanceId}
+              model={props.model}
+              {...(props.selectedModels !== undefined
+                ? { selectedModels: props.selectedModels }
+                : {})}
+              {...(props.onToggleModel
+                ? {
+                    onToggleModel: (instanceId: ProviderInstanceId, model: string) => {
+                      if (!props.disabled) props.onToggleModel?.(instanceId, model);
+                    },
+                  }
+                : {})}
+              lockedProvider={props.lockedProvider}
+              lockedContinuationGroupKey={props.lockedContinuationGroupKey ?? null}
+              instanceEntries={props.instanceEntries}
+              {...(props.keybindings ? { keybindings: props.keybindings } : {})}
+              modelOptionsByInstance={props.modelOptionsByInstance}
+              terminalOpen={props.terminalOpen ?? false}
+              onRequestClose={() => setIsMenuOpen(false)}
+              {...(props.onOpenProviderSetup
+                ? { onOpenProviderSetup: props.onOpenProviderSetup }
+                : {})}
+              {...(props.getModelDisabledReason
+                ? { getModelDisabledReason: props.getModelDisabledReason }
+                : {})}
+              onInstanceModelChange={handleInstanceModelChange}
+            />
+            {props.selectedModels === undefined ? (
+              <ChatGptSharingControl provider={activeEntry?.snapshot ?? null} />
+            ) : null}
+          </>
+        ) : (
+          <div className="w-80 max-w-[calc(100vw-2rem)] pb-1.5">
+            <div className="flex items-center gap-3 border-b px-3.5 py-3">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent/70">
+                {selectedEntries && selectedEntries.length > 1 ? (
+                  <LayersIcon aria-hidden="true" className="size-4.5 text-muted-foreground" />
+                ) : activeEntry ? (
+                  <ProviderInstanceIcon
+                    driverKind={activeEntry.driverKind}
+                    displayName={activeEntry.displayName}
+                    accentColor={activeEntry.accentColor}
+                    acpRegistryAgentId={activeEntry.acpRegistryAgentId}
+                    acpRegistryIconUrl={activeEntry.acpRegistryIconUrl}
+                    className="size-4.5"
+                    iconClassName={cn("size-4.5", props.activeProviderIconClassName)}
+                  />
+                ) : null}
+              </span>
+              <span className="grid min-w-0">
+                <span className="truncate font-semibold text-base text-foreground">
+                  {selectedEntries && selectedEntries.length > 1 ? multipleLabel : cardModelName}
+                </span>
+                {activeEntry ? (
+                  <span className="truncate text-muted-foreground text-xs">
+                    {activeEntry.displayName}
+                  </span>
+                ) : null}
+              </span>
+            </div>
+            <div className="px-1.5 pt-1.5">
+              <button
+                ref={settingsCardModelRowRef}
+                type="button"
+                className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg bg-accent/50 px-2.5 py-2 text-sm hover:bg-accent"
+                onClick={() => setShowModelList(true)}
+              >
+                <LayersIcon aria-hidden="true" className="size-4 text-muted-foreground" />
+                <span className="flex-1 text-start text-foreground">Model</span>
+                <span className="flex items-center gap-1 text-muted-foreground text-xs">
+                  Change
+                  <ChevronRightIcon aria-hidden="true" className="size-3.5" />
+                </span>
+              </button>
+            </div>
+            <div className="px-1.5">{props.settingsCardControls}</div>
+          </div>
+        )}
       </PopoverPopup>
     </Popover>
   );

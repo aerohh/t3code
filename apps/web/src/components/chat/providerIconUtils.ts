@@ -54,3 +54,8 @@ export function getTriggerDisplayModelName(model: ModelEsque): string {
 export function getTriggerDisplayModelLabel(model: ModelEsque): string {
   return getTriggerDisplayModelName(model);
 }
+
+/** The composer chip sits beside the provider's icon, so the provider's name is dropped. */
+export function getChipDisplayModelName(model: ModelEsque, providerDisplayName: string): string {
+  return stripLeadingQualifier(getTriggerDisplayModelName(model), providerDisplayName);
+}

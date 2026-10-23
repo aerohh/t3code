@@ -18,12 +18,10 @@ import type { ReactNode } from "react";
 
 import type { DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
-import type { ComposerControlSize } from "./ComposerControl";
 import {
   getReasoningTraitStep,
   shouldRenderTraitsControls,
-  TraitsMenuContent,
-  TraitsPicker,
+  TraitsInlineControls,
 } from "./TraitsPicker";
 
 export type ComposerProviderStateInput = {
@@ -58,10 +56,6 @@ type TraitsRenderInput = {
   prompt: string;
   onPromptChange: (prompt: string) => void;
   planModeEnabled: boolean;
-  size?: ComposerControlSize;
-  hidden?: boolean;
-  triggerClassName?: string;
-  isComposerOwned?: boolean;
 };
 
 export function getComposerPromptInjectionState(prompt: string): ComposerPromptInjectionState {
@@ -217,10 +211,7 @@ export function getComposerReasoningStep(input: {
   };
 }
 
-function renderTraitsControl(
-  Component: typeof TraitsMenuContent | typeof TraitsPicker,
-  input: TraitsRenderInput,
-): ReactNode {
+export function renderProviderTraitsInlineControls(input: TraitsRenderInput): ReactNode {
   const {
     provider,
     instanceId,
@@ -233,10 +224,6 @@ function renderTraitsControl(
     prompt,
     onPromptChange,
     planModeEnabled,
-    size,
-    hidden,
-    triggerClassName,
-    isComposerOwned,
   } = input;
   const hasTarget = threadRef !== undefined || draftId !== undefined;
   const { selections: resolvedModelOptions } = resolveComposerOptionSelections(
@@ -260,7 +247,7 @@ function renderTraitsControl(
     return null;
   }
   return (
-    <Component
+    <TraitsInlineControls
       provider={provider}
       {...(instanceId ? { instanceId } : {})}
       models={models}
@@ -272,18 +259,6 @@ function renderTraitsControl(
       prompt={prompt}
       onPromptChange={onPromptChange}
       planModeEnabled={planModeEnabled}
-      {...(size !== undefined ? { size } : {})}
-      {...(hidden !== undefined ? { hidden } : {})}
-      {...(triggerClassName !== undefined ? { triggerClassName } : {})}
-      {...(isComposerOwned ? { isComposerOwned } : {})}
     />
   );
-}
-
-export function renderProviderTraitsMenuContent(input: TraitsRenderInput): ReactNode {
-  return renderTraitsControl(TraitsMenuContent, input);
-}
-
-export function renderProviderTraitsPicker(input: TraitsRenderInput): ReactNode {
-  return renderTraitsControl(TraitsPicker, input);
 }

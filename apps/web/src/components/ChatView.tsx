@@ -2468,6 +2468,8 @@ export default function ChatView(props: ChatViewProps) {
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server" && restingComposerControlsVisible,
   });
+  // The start screen reads where-it-runs as a line of text instead of a tab under the bar.
+  const composerContextAsSentence = isDraftHeroState && !isMobileViewport;
   const mountComposerModelStrip =
     routeKind === "server" && !mountComposerContextStrip && !showProviderSubagentBar;
   const showComposerModelStrip = mountComposerModelStrip && restingComposerControlsVisible;
@@ -6916,7 +6918,10 @@ export default function ChatView(props: ChatViewProps) {
                     }
                   >
                     <ComposerSurface.Shell
-                      contextStrip={showComposerContextStrip || showComposerModelStrip}
+                      contextStrip={
+                        (showComposerContextStrip && !composerContextAsSentence) ||
+                        showComposerModelStrip
+                      }
                     >
                       <ComposerSurface.Host
                         inert={queuedRunEdit.isSaving}
@@ -7142,6 +7147,7 @@ export default function ChatView(props: ChatViewProps) {
                           {mountComposerContextStrip && (
                             <div className="pointer-events-auto">
                               <BranchToolbar
+                                layout={composerContextAsSentence ? "sentence" : "composer"}
                                 forceNewWorktree={multipleModelSelections !== null}
                                 ref={branchToolbarRef}
                                 environmentId={activeThread.environmentId}

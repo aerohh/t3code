@@ -5,6 +5,7 @@ import {
   getTraitSelectChange,
   replaceDescriptorCurrentValue,
   selectableProviderOptionChoices,
+  splitReasoningChoices,
   REASONING_SELECT_DESCRIPTOR_IDS,
   ULTRATHINK_PROMPT_PREFIX,
 } from "@t3tools/client-runtime/model-traits";
@@ -23,8 +24,16 @@ import {
   getProviderOptionDescriptors,
   normalizeModelSlug,
 } from "@t3tools/shared/model";
-import { memo } from "react";
-import { BrainIcon } from "lucide-react";
+import { memo, type ReactNode } from "react";
+import {
+  BotIcon,
+  BrainIcon,
+  GaugeIcon,
+  type LucideIcon,
+  RulerIcon,
+  SlidersHorizontalIcon,
+  ZapIcon,
+} from "lucide-react";
 import {
   Menu,
   MenuGroup,
@@ -38,6 +47,9 @@ import { useComposerDraftStore, DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
+import { Switch } from "../ui/switch";
+import { Toggle } from "../ui/toggle";
+import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   ComposerControl,
@@ -314,7 +326,7 @@ export interface TraitsMenuContentProps {
   isComposerOwned?: boolean;
 }
 
-export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
+function useTraitsControls({
   provider,
   instanceId,
   models,
@@ -322,11 +334,10 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   prompt,
   onPromptChange,
   modelOptions,
-  reportedModelSelection,
   allowPromptInjectedEffort = true,
   planModeEnabled,
-  ...persistence
-}: TraitsMenuContentProps & TraitsPersistence) {
+  persistence,
+}: Omit<TraitsMenuContentProps, "reportedModelSelection"> & { persistence: TraitsPersistence }) {
   const modelSelection =
     instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null;
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
@@ -354,6 +365,46 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     allowPromptInjectedEffort,
     planModeEnabled,
   });
+  const updateDescriptors = (nextDescriptors: ReadonlyArray<ProviderOptionDescriptor>) => {
+    updateModelOptions(buildProviderOptionSelectionsFromDescriptors(nextDescriptors));
+  };
+  const handleSelectChange = (
+    descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
+    value: string,
+  ) => {
+    const change = getTraitSelectChange(selected, descriptor, prompt, value);
+    if (!change) return;
+    if (change.prompt !== prompt) onPromptChange(change.prompt);
+    if ("modelOptions" in change) updateModelOptions(change.modelOptions);
+  };
+  return { selected, modelSelection, updateDescriptors, handleSelectChange };
+}
+
+const TraitsMenuContent = memo(function TraitsMenuContentImpl({
+  provider,
+  instanceId,
+  models,
+  model,
+  prompt,
+  onPromptChange,
+  modelOptions,
+  reportedModelSelection,
+  allowPromptInjectedEffort = true,
+  planModeEnabled,
+  ...persistence
+}: TraitsMenuContentProps & TraitsPersistence) {
+  const { selected, modelSelection, updateDescriptors, handleSelectChange } = useTraitsControls({
+    provider,
+    ...(instanceId ? { instanceId } : {}),
+    models,
+    model,
+    prompt,
+    onPromptChange,
+    modelOptions,
+    allowPromptInjectedEffort,
+    planModeEnabled,
+    persistence,
+  });
   const {
     descriptors,
     selectDescriptors,
@@ -364,19 +415,6 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     hasAnyControls,
     modelIsUnavailable,
   } = selected;
-  const updateDescriptors = (nextDescriptors: ReadonlyArray<ProviderOptionDescriptor>) => {
-    updateModelOptions(buildProviderOptionSelectionsFromDescriptors(nextDescriptors));
-  };
-
-  const handleSelectChange = (
-    descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
-    value: string,
-  ) => {
-    const change = getTraitSelectChange(selected, descriptor, prompt, value);
-    if (!change) return;
-    if (change.prompt !== prompt) onPromptChange(change.prompt);
-    if ("modelOptions" in change) updateModelOptions(change.modelOptions);
-  };
 
   if (!hasAnyControls) {
     return null;
@@ -491,6 +529,271 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
           </div>
         );
       })}
+    </>
+  );
+});
+
+const TRAIT_ROW_ICONS: Readonly<Record<string, LucideIcon>> = {
+  agent: BotIcon,
+  contextWindow: RulerIcon,
+  fastMode: ZapIcon,
+  serviceTier: GaugeIcon,
+  thinking: BrainIcon,
+};
+
+export function SettingsCardRow(props: {
+  icon: LucideIcon;
+  label: string;
+  warning?: boolean;
+  trailing?: ReactNode;
+  children?: ReactNode;
+}) {
+  const Icon = props.icon;
+  return (
+    <div className="px-2.5 py-1.5">
+      <div className="flex min-h-7 items-center gap-2.5 text-sm">
+        <Icon
+          aria-hidden="true"
+          className={cn(
+            "size-4 shrink-0",
+            props.warning ? "text-warning" : "text-muted-foreground",
+          )}
+        />
+        <span className="min-w-0 flex-1 truncate text-foreground">{props.label}</span>
+        {props.trailing}
+      </div>
+      {props.children}
+    </div>
+  );
+}
+
+function ReasoningLevelBars(props: {
+  label: string;
+  levels: ReadonlyArray<{ id: string; label: string }>;
+  selectedId: string;
+  disabled: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const selectedIndex = props.levels.findIndex((level) => level.id === props.selectedId);
+  return (
+    <div role="radiogroup" aria-label={props.label} className="flex items-center">
+      {props.levels.map((level, index) => (
+        <Tooltip key={level.id}>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                role="radio"
+                aria-checked={level.id === props.selectedId}
+                aria-label={level.label}
+                disabled={props.disabled}
+                className="group/bar flex h-6 cursor-pointer items-center px-0.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-64"
+                onClick={() => props.onSelect(level.id)}
+              />
+            }
+          >
+            <span
+              className={cn(
+                "h-1.5 w-4 rounded-full transition-colors",
+                index <= selectedIndex
+                  ? "bg-foreground"
+                  : "bg-foreground/15 group-hover/bar:bg-foreground/35",
+              )}
+            />
+          </TooltipTrigger>
+          <TooltipPopup side="top">{level.label}</TooltipPopup>
+        </Tooltip>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The composer settings card shows every trait at once, so each one is a
+ * direct control instead of a menu.
+ */
+export const TraitsInlineControls = memo(function TraitsInlineControls({
+  provider,
+  instanceId,
+  models,
+  model,
+  prompt,
+  onPromptChange,
+  modelOptions,
+  reportedModelSelection,
+  allowPromptInjectedEffort = true,
+  planModeEnabled,
+  ...persistence
+}: TraitsMenuContentProps & TraitsPersistence) {
+  const { selected, modelSelection, updateDescriptors, handleSelectChange } = useTraitsControls({
+    provider,
+    ...(instanceId ? { instanceId } : {}),
+    models,
+    model,
+    prompt,
+    onPromptChange,
+    modelOptions,
+    allowPromptInjectedEffort,
+    planModeEnabled,
+    persistence,
+  });
+  const {
+    descriptors,
+    selectDescriptors,
+    booleanDescriptors,
+    primarySelectDescriptor,
+    ultrathinkPromptControlled,
+    ultrathinkInBodyText,
+    hasAnyControls,
+    modelIsUnavailable,
+  } = selected;
+
+  if (!hasAnyControls) {
+    return null;
+  }
+
+  if (modelIsUnavailable) {
+    return (
+      <>
+        {descriptors.map((descriptor) => {
+          const value = getProviderOptionCurrentLabel(
+            descriptor,
+            modelSelection,
+            reportedModelSelection,
+          );
+          if (!value) return null;
+          return (
+            <SettingsCardRow
+              key={descriptor.id}
+              icon={TRAIT_ROW_ICONS[descriptor.id] ?? SlidersHorizontalIcon}
+              label={descriptor.label}
+              trailing={<span className="text-muted-foreground text-xs">{value}</span>}
+            />
+          );
+        })}
+      </>
+    );
+  }
+
+  return (
+    <>
+      {selectDescriptors.map((descriptor) => {
+        const isPrimary = descriptor.id === primarySelectDescriptor?.id;
+        const selectedValue =
+          ultrathinkPromptControlled && isPrimary
+            ? "ultrathink"
+            : (getDescriptorStringValue(descriptor, modelSelection, reportedModelSelection) ?? "");
+        const lockedByPromptText = ultrathinkInBodyText && isPrimary;
+        const choices = selectableProviderOptionChoices(descriptor);
+        const { levels, modes } = splitReasoningChoices(descriptor);
+
+        if (REASONING_SELECT_DESCRIPTOR_IDS.has(descriptor.id) && levels.length >= 2) {
+          const selectedChoice = choices.find((choice) => choice.id === selectedValue);
+          const fallbackLevelId = (levels.find((level) => level.isDefault) ?? levels[0])?.id;
+          return (
+            <SettingsCardRow
+              key={descriptor.id}
+              icon={BrainIcon}
+              label={descriptor.label}
+              trailing={
+                <>
+                  <ReasoningLevelBars
+                    label={descriptor.label}
+                    levels={levels}
+                    selectedId={selectedValue}
+                    disabled={lockedByPromptText}
+                    onSelect={(id) => handleSelectChange(descriptor, id)}
+                  />
+                  <span className="w-18 truncate text-end text-muted-foreground text-xs">
+                    {selectedChoice?.label ?? ""}
+                  </span>
+                </>
+              }
+            >
+              {modes.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 ps-6.5 pt-1">
+                  {modes.map((mode) => (
+                    <Tooltip key={mode.id}>
+                      <TooltipTrigger
+                        render={
+                          <Toggle
+                            variant="outline"
+                            size="segmented"
+                            pressed={selectedValue === mode.id}
+                            disabled={lockedByPromptText}
+                            onPressedChange={(pressed) =>
+                              handleSelectChange(
+                                descriptor,
+                                pressed ? mode.id : (fallbackLevelId ?? mode.id),
+                              )
+                            }
+                          />
+                        }
+                      >
+                        {mode.label}
+                      </TooltipTrigger>
+                      {mode.description ? (
+                        <TooltipPopup side="top">{mode.description}</TooltipPopup>
+                      ) : null}
+                    </Tooltip>
+                  ))}
+                </div>
+              ) : null}
+              {lockedByPromptText ? (
+                <p className="ps-6.5 pt-1 text-muted-foreground text-xs">
+                  Your prompt contains &quot;ultrathink&quot; in the text. Remove it to change this
+                  option.
+                </p>
+              ) : null}
+            </SettingsCardRow>
+          );
+        }
+
+        return (
+          <SettingsCardRow
+            key={descriptor.id}
+            icon={TRAIT_ROW_ICONS[descriptor.id] ?? SlidersHorizontalIcon}
+            label={descriptor.label}
+          >
+            <ToggleGroup
+              aria-label={descriptor.label}
+              variant="segmented"
+              className="mt-1.5 w-full flex-wrap"
+              value={[selectedValue]}
+              disabled={lockedByPromptText}
+              onValueChange={(next) => {
+                const value = next[0];
+                if (typeof value === "string") handleSelectChange(descriptor, value);
+              }}
+            >
+              {choices.map((choice) => (
+                <ToggleGroupItem key={choice.id} value={choice.id} className="flex-1">
+                  {choice.label}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </SettingsCardRow>
+        );
+      })}
+      {booleanDescriptors.map((descriptor) => (
+        <SettingsCardRow
+          key={descriptor.id}
+          icon={TRAIT_ROW_ICONS[descriptor.id] ?? SlidersHorizontalIcon}
+          label={descriptor.label}
+          trailing={
+            <Switch
+              size="sm"
+              aria-label={descriptor.label}
+              checked={descriptor.currentValue === true}
+              onCheckedChange={(checked) =>
+                updateDescriptors(
+                  replaceDescriptorCurrentValue(descriptors, descriptor.id, checked),
+                )
+              }
+            />
+          }
+        />
+      ))}
     </>
   );
 });

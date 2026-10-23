@@ -46,7 +46,7 @@ function Host({ className, ...props }: ComponentProps<"div">) {
     <div
       data-slot="composer-host"
       className={cn(
-        "relative z-10 w-full rounded-3xl shadow-composer after:z-1 dark:shadow-none",
+        "relative z-10 w-full rounded-3xl shadow-composer after:z-1 dark:shadow-composer-dark",
         outlineClasses,
         contextSeamClasses,
         "group-has-data-[composer-banner-surface=attached]/composer-surface:shadow-none group-has-data-[composer-banner-surface=attached]/composer-surface:after:hidden",

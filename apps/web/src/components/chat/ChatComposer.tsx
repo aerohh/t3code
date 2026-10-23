@@ -266,6 +266,7 @@ import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import {
   ComposerAttachButton,
+  ComposerAttachmentFileChips,
   ComposerAttachmentFileList,
   ComposerAttachmentMediaRow,
   ComposerFilePreviewDialog,
@@ -274,8 +275,9 @@ import {
 } from "./ComposerAttachmentStrip";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import {
-  ComposerFooterModeControls,
+  ComposerAccessControl,
   ComposerFooterPrimaryActions,
+  ComposerInteractionModeToggle,
   ComposerModelPicker,
 } from "./ComposerFooterControls";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
@@ -288,8 +290,7 @@ import {
   getComposerPromptInjectionState,
   getComposerProviderState,
   getComposerReasoningStep,
-  renderProviderTraitsMenuContent,
-  renderProviderTraitsPicker,
+  renderProviderTraitsInlineControls,
 } from "./composerProviderState";
 import {
   providerSupportsManualCompaction,
@@ -454,7 +455,7 @@ function useComposerRestingTransition(
       element.dataset.inlineRestingControls === "true" || element.dataset.modelOnlyStrip === "true";
     const controls = nextIsCollapsed
       ? restingControlsRef.current
-      : element.querySelector<HTMLElement>('[data-chat-composer-controls="left"]');
+      : element.querySelector<HTMLElement>('[data-chat-composer-controls="expanded"]');
 
     const shell = element.closest<HTMLElement>('[data-slot="composer-shell"]');
     const modelStrip = shell?.querySelector<HTMLElement>('[data-composer-model-strip="true"]');
@@ -685,7 +686,7 @@ function useComposerRestingTransition(
 
         const arrivingControls = nextIsCollapsed
           ? restingControlsRef.current
-          : element.querySelector<HTMLElement>('[data-chat-composer-controls="left"]');
+          : element.querySelector<HTMLElement>('[data-chat-composer-controls="expanded"]');
         if (arrivingControls && !continuousControls) {
           const drift = nextIsCollapsed
             ? -COMPOSER_RESTING_CONTROLS_ARRIVAL_DRIFT_PX
@@ -826,7 +827,7 @@ function useComposerRestingTransition(
       const controlsRect = (
         isCollapsedRef.current
           ? restingControlsRef.current
-          : visibleTransitionElement('[data-chat-composer-controls="left"]')
+          : visibleTransitionElement('[data-chat-composer-controls="expanded"]')
       )?.getBoundingClientRect();
       previousHeightRef.current = elementRect.height;
       previousContentOffsetsRef.current = {
@@ -2332,7 +2333,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   };
   const setPromptFromTraitsStable = useStableCallback(setPromptFromTraits);
 
-  const providerTraitsMenuContent = renderProviderTraitsMenuContent({
+  const providerTraitsInlineControls = renderProviderTraitsInlineControls({
     provider: selectedProvider,
     instanceId: selectedInstanceId,
     ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
@@ -2345,21 +2346,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onPromptChange: setPromptFromTraitsStable,
     planModeEnabled: settings.planModeEnabled,
   });
-  const providerTraitsPickerInput = {
-    provider: selectedProvider,
-    instanceId: selectedInstanceId,
-    ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
-    ...(routeKind === "draft" && draftId ? { draftId } : {}),
-    model: selectedModel,
-    models: selectedProviderModels,
-    modelOptions: composerModelOptions?.[selectedInstanceId],
-    reportedModelSelection,
-    prompt,
-    onPromptChange: setPromptFromTraitsStable,
-    planModeEnabled: settings.planModeEnabled,
-    isComposerOwned: true,
-  } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
-  const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
   const [inlineRestingControlsHost, setInlineRestingControlsHost] = useState<HTMLDivElement | null>(
     null,
   );
@@ -4328,6 +4314,39 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerControlsVisibleInStrip =
     composerControlsCollapsed && restingControlsHost !== null && restingControlsVisible;
   const composerControlsHidden = composerControlsCollapsed && !restingControlsVisible;
+  // On desktop the bar keeps one row and grows upward as the prompt wraps.
+  // Answers, plan follow-ups, approvals and errors need the wider footer row,
+  // and the phone layouts are their own design.
+  const isComposerSlim =
+    !inSideChatCard &&
+    !isComposerResting &&
+    !isComposerCollapsedMobile &&
+    !isMobileViewport &&
+    !isComposerApprovalState &&
+    pendingUserInputs.length === 0 &&
+    !showPlanFollowUpPrompt &&
+    composerSubmissionError === null &&
+    providerInputSubmissionError === null;
+  useEffect(() => {
+    const editor = composerMenuAnchor?.querySelector<HTMLElement>(
+      '[data-testid="composer-editor"]',
+    );
+    if (!editor || !isComposerSlim) return;
+    // Written to the element so scrolling a long prompt never re-renders the composer.
+    const markScrolled = () => {
+      editor.dataset.scrolledFromTop = editor.scrollTop > 0 ? "true" : "false";
+    };
+    markScrolled();
+    editor.addEventListener("scroll", markScrolled, { passive: true });
+    // Clearing or replacing the prompt shrinks it without a scroll event.
+    const contentObserver = new MutationObserver(markScrolled);
+    contentObserver.observe(editor, { childList: true, characterData: true, subtree: true });
+    return () => {
+      editor.removeEventListener("scroll", markScrolled);
+      contentObserver.disconnect();
+      delete editor.dataset.scrolledFromTop;
+    };
+  }, [composerMenuAnchor, isComposerSlim]);
   if (composerControlsHidden && isComposerModelPickerOpen) {
     setIsComposerModelPickerOpen(false);
   }
@@ -4496,41 +4515,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const iconOnlyBlockCount = composerControlsCollapsed
     ? restingControlsIconOnlyBlockCount
     : expandedControlsIconOnlyBlockCount;
-  const restingProviderTraitsPicker = renderProviderTraitsPicker({
-    ...providerTraitsPickerInput,
-    size: composerControlsCollapsed ? "xs" : "sm",
-    hidden: composerControlsHidden || restingHiddenBlockCount > 1,
-  });
-  const restingBlockDefs = [
-    ...(providerTraitsPicker
-      ? [
-          {
-            id: "traits",
-            content: (
-              <>
-                <ComposerControlSeparator size={composerControlsCollapsed ? "xs" : "sm"} />
-                {restingProviderTraitsPicker}
-              </>
-            ),
-          },
-        ]
-      : []),
-    {
-      id: "mode",
-      content: (
-        <ComposerFooterModeControls
-          showInteractionModeToggle={planModeUiEnabled}
-          interactionMode={interactionMode}
-          runtimeMode={compatibleRuntimeMode}
-          runtimeModeOptions={compatibleRuntimeModeOptions}
-          size={composerControlsCollapsed ? "xs" : "sm"}
-          hidden={composerControlsHidden || restingHiddenBlockCount > 0}
-          onToggleInteractionMode={toggleInteractionMode}
-          onRuntimeModeChange={handleRuntimeModeChange}
-        />
-      ),
-    },
-  ];
+  const restingBlockDefs = planModeUiEnabled
+    ? [
+        {
+          id: "mode",
+          content: (
+            <ComposerInteractionModeToggle
+              interactionMode={interactionMode}
+              size={composerControlsCollapsed ? "xs" : "sm"}
+              onToggleInteractionMode={toggleInteractionMode}
+            />
+          ),
+        },
+      ]
+    : [];
   const hiddenRestingBlockIds = restingBlockDefs
     .slice(restingBlockDefs.length - restingHiddenBlockCount)
     .map((def) => def.id);
@@ -4569,7 +4567,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               !showInlineRestingControls &&
                 "@max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none",
             )
-          : "-ms-2.5 min-w-13"
+          : "min-w-13"
       }
       terminalOpen={terminalOpen}
       open={isComposerModelPickerOpen}
@@ -4588,6 +4586,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           }
         : {})}
       onOpenChange={setIsComposerModelPickerOpen}
+      triggerShortcuts="composer.effort composer.mode"
+      // Built only while open: the traits follow the prompt, so a closed card
+      // would otherwise re-render the picker on every keystroke.
+      settingsCardControls={
+        isComposerModelPickerOpen ? (
+          <>
+            {providerTraitsInlineControls}
+            {inSideChatCard ? null : (
+              <ComposerAccessControl
+                runtimeMode={compatibleRuntimeMode}
+                runtimeModeOptions={compatibleRuntimeModeOptions}
+                onRuntimeModeChange={handleRuntimeModeChange}
+              />
+            )}
+          </>
+        ) : null
+      }
       getModelDisabledReason={getModelDisabledReason}
       onOpenProviderSetup={onOpenProviderSetup}
     />
@@ -4609,15 +4624,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     </ComposerControl>
   ) : inSideChatCard ? (
     sideChatPickersShown ? (
-      <>
-        {composerModelPicker}
-        {providerTraitsPicker ? (
-          <>
-            <ComposerControlSeparator size={composerControlsCollapsed ? "xs" : "sm"} />
-            {restingProviderTraitsPicker}
-          </>
-        ) : null}
-      </>
+      composerModelPicker
     ) : null
   ) : (
     <>
@@ -4666,16 +4673,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         >
           <CompactComposerControlsMenu
             interactionMode={interactionMode}
-            runtimeMode={compatibleRuntimeMode}
-            runtimeModeOptions={compatibleRuntimeModeOptions}
             size={composerControlsCollapsed ? "xs" : "sm"}
             hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
-            showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}
-            traitsMenuContent={
-              hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
-            }
             onToggleInteractionMode={toggleInteractionMode}
-            onRuntimeModeChange={handleRuntimeModeChange}
           />
         </div>
       </>
@@ -5029,6 +5029,34 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     void confirmation.then((confirmed) => {
       if (confirmed) removeComposerImageFromDraft(imageId);
+    });
+  };
+
+  const clearTrayAttachments = () => {
+    const images = expandedComposerImages;
+    const fileIds = [...composerVideos, ...composerOtherFiles].map((file) => file.id);
+    const removeAll = () => {
+      for (const image of images) removeComposerImageFromDraft(image.id);
+      for (const fileId of fileIds) removeComposerFileFromDraft(fileId);
+    };
+    const promptContextIds = new Set(collectInlineContextIds(promptRef.current));
+    const referencedCount = images.filter((image) =>
+      promptContextIds.has(imageContextReference(image).contextId),
+    ).length;
+    if (referencedCount === 0) {
+      removeAll();
+      return;
+    }
+    const confirmation = requestConfirmDialog(
+      `Remove all attachments from the message?\n${referencedCount === 1 ? "One image is" : `${referencedCount} images are`} referenced in your text; removing them also removes every reference.`,
+      { variant: "destructive" },
+    );
+    if (!confirmation) {
+      removeAll();
+      return;
+    }
+    void confirmation.then((confirmed) => {
+      if (confirmed) removeAll();
     });
   };
 
@@ -5774,6 +5802,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ],
   );
 
+  // Phones and the collapsed bar keep attachments inside the box; the phone layout is its own design.
+  // Without the + there is no tray to open, so attachments stay in the box rather than hide.
+  const showAttachmentTray =
+    !isMobileViewport &&
+    !isComposerCollapsedMobile &&
+    !isComposerResting &&
+    showComposerAttachAction;
   // Built outside the form's JSX so typing, which rebuilds that JSX, leaves them cached.
   const composerAttachmentMediaRow =
     !isComposerCollapsedMobile &&
@@ -5781,6 +5816,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerVideos.length > 0 ||
       expandedComposerImages.length > 0) ? (
       <ComposerAttachmentMediaRow
+        placement={showAttachmentTray ? "tray" : "editor"}
         images={composerImages}
         expandedImages={expandedComposerImages}
         videos={composerVideos}
@@ -5801,7 +5837,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       />
     ) : null;
   const composerAttachmentFileList =
-    !isComposerCollapsedMobile && composerOtherFiles.length > 0 ? (
+    !isComposerCollapsedMobile && !showAttachmentTray && composerOtherFiles.length > 0 ? (
       <ComposerAttachmentFileList
         files={composerOtherFiles}
         resolvedTheme={resolvedTheme}
@@ -5815,10 +5851,32 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         onRemoveFile={removeComposerFileFromDraft}
       />
     ) : null;
+  const trayAttachmentCount = showAttachmentTray
+    ? expandedComposerImages.length + composerVideos.length + composerOtherFiles.length
+    : 0;
   const composerAttachButton = showComposerAttachAction ? (
     <ComposerAttachButton
       addComposerAttachments={addComposerAttachments}
       focusComposer={focusComposer}
+      attachedCount={trayAttachmentCount}
+      attachedItems={
+        <>
+          {composerAttachmentMediaRow}
+          <ComposerAttachmentFileChips
+            files={composerOtherFiles}
+            resolvedTheme={resolvedTheme}
+            supportsAttachmentUploads={supportsAttachmentUploads}
+            maxFileAttachmentBytes={maxFileAttachmentBytes}
+            fileStagingLimit={fileStagingLimit}
+            environmentId={environmentId}
+            attachmentDraftTarget={attachmentDraftTarget}
+            canOperateThread={canOperateThread}
+            onPreviewFile={setPreviewFileId}
+            onRemoveFile={removeComposerFileFromDraft}
+          />
+        </>
+      }
+      onClearAttached={clearTrayAttachments}
     />
   ) : null;
   return (
@@ -6029,8 +6087,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             ref={composerSurfaceRef}
             data-chat-composer-surface="true"
             data-chat-composer-mobile-collapsed={isComposerCollapsedMobile ? "true" : "false"}
+            data-chat-composer-slim={isComposerSlim ? "true" : undefined}
             className={cn(
               "rounded-3xl transition-[background-color] duration-200",
+              isComposerSlim && "flex items-end",
               "in-data-[thread-context-over]:bg-accent/45 in-data-[thread-context-over]:ring-1 in-data-[thread-context-over]:ring-inset in-data-[thread-context-over]:ring-primary/70",
               isDragOverComposer ? "bg-accent/45 ring-1 ring-inset ring-primary/70" : null,
               projectSelectionRequired ? "opacity-75" : null,
@@ -6094,6 +6154,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 "pt-3.5 sm:pt-4",
                 isComposerCollapsedMobile && "hidden",
                 isComposerResting && "py-2 sm:py-2",
+                isComposerSlim && "order-2 min-w-0 flex-1 px-1.5 py-2.5 sm:px-1.5 sm:py-2.5",
               )}
             >
               {isStashMenuOpen && !composerMenuOpen && (
@@ -6150,7 +6211,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   />
                 )}
 
-              {composerAttachmentMediaRow}
+              {showAttachmentTray ? null : composerAttachmentMediaRow}
 
               {composerAttachmentFileList}
 
@@ -6195,10 +6256,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     containerClassName={cn(isComposerResting && "min-w-0 flex-1")}
                     className={cn(
                       showMobilePendingAnswerActions && "max-sm:pb-12",
+                      isComposerSlim &&
+                        "max-h-30 min-h-7 leading-7 data-[scrolled-from-top=true]:mask-t-from-75%",
                       isComposerResting &&
                         "my-0 max-h-8 min-h-8 overflow-hidden py-0 whitespace-pre! leading-8",
                     )}
                     placeholderClassName={cn(
+                      isComposerSlim && "truncate whitespace-nowrap leading-7",
                       isComposerResting &&
                         "flex items-center overflow-hidden whitespace-nowrap leading-8",
                     )}
@@ -6226,7 +6290,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                                 ? "Enable a provider in Settings to send a message"
                                 : phase === "disconnected"
                                   ? DISCONNECTED_COMPOSER_PLACEHOLDER
-                                  : "Ask anything, @tag files/folders, $use skills, or / for commands"
+                                  : phase === "running"
+                                    ? followUpBehavior === "steer"
+                                      ? "Working… type to steer the agent"
+                                      : "Working… type to queue a follow-up"
+                                    : isComposerSlim
+                                      ? "Ask anything…"
+                                      : "Ask anything, @tag files/folders, $use skills, or / for commands"
                     }
                     disabled={
                       isConnecting ||
@@ -6287,18 +6357,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     "absolute right-px z-10 h-12 w-auto gap-0 py-0 sm:gap-0 sm:py-0",
                   isComposerResting &&
                     (showInlineRestingControls ? "bottom-[calc(2rem+1px)]" : "bottom-px"),
+                  isComposerSlim && "contents",
                 )}
               >
                 <div
-                  ref={attachExpandedComposerControls}
-                  data-chat-composer-controls="left"
-                  data-chat-composer-footer-controls="true"
+                  data-chat-composer-attach="true"
                   className={cn(
-                    "relative -m-1 -ms-3.5 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 ps-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+                    "flex min-w-0 flex-1 items-center",
                     isComposerResting && "hidden",
+                    isComposerSlim && "order-1 flex-none self-end py-2 ps-2.5",
                   )}
                 >
-                  {composerControlsCollapsed ? null : composerControls}
+                  {isComposerResting ? null : composerAttachButton}
                 </div>
 
                 <div
@@ -6308,7 +6378,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   data-chat-composer-primary-actions-compact={
                     isComposerPrimaryActionsCompact ? "true" : "false"
                   }
-                  className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
+                  className={cn(
+                    "flex min-w-0 shrink-0 flex-nowrap items-center justify-end gap-2",
+                    isComposerSlim && "order-3 self-end py-2 pe-2",
+                  )}
                 >
                   {inSideChatCard ? (
                     <Tooltip>
@@ -6331,8 +6404,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       </TooltipPopup>
                     </Tooltip>
                   ) : null}
-                  {composerAttachButton}
+                  {isComposerResting ? composerAttachButton : null}
                   <ComposerFooterPrimaryActions
+                    controls={
+                      composerControlsCollapsed ? null : (
+                        <div
+                          ref={attachExpandedComposerControls}
+                          data-chat-composer-controls="expanded"
+                          data-chat-composer-footer-controls="true"
+                          className="flex min-w-0 items-center gap-1"
+                        >
+                          {composerControls}
+                        </div>
+                      )
+                    }
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
                     canOperateThread={canOperateThread}
                     activeContextWindow={
