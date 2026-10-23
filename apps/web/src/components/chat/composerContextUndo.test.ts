@@ -1,8 +1,12 @@
 import type { PreviewAnnotationPayload } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { ComposerImageAttachment } from "../../composerDraftStore";
-import { buildMessageContext, previewAnnotationContextId } from "../../lib/composerContextRecords";
+import type { ComposerFileAttachment, ComposerImageAttachment } from "../../composerDraftStore";
+import {
+  buildMessageContext,
+  fileContextReference,
+  previewAnnotationContextId,
+} from "../../lib/composerContextRecords";
 import {
   reconcileAttachmentContextReferences,
   type RetainedAttachmentContextPayloads,
@@ -87,5 +91,44 @@ describe("reconcileAttachmentContextReferences", () => {
         attachmentId: "uploaded-screenshot",
       }),
     ]);
+  });
+
+  it("keeps an attached file when its chip is deleted, but drops a large paste", () => {
+    const pdf = {
+      type: "file",
+      id: "file-1",
+      name: "spec.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 3,
+      file: new File(["pdf"], "spec.pdf", { type: "application/pdf" }),
+    } satisfies ComposerFileAttachment;
+    const paste = {
+      type: "file",
+      id: "file-2",
+      name: "pasted-1.txt",
+      mimeType: "text/plain;charset=utf-8",
+      sizeBytes: 4,
+      file: new File(["text"], "pasted-1.txt", { type: "text/plain;charset=utf-8" }),
+      source: { _tag: "pasted-text" },
+    } satisfies ComposerFileAttachment;
+    const retained = retention();
+
+    const deleted = reconcileAttachmentContextReferences({
+      referencedContextIds: new Set(),
+      files: [pdf, paste],
+      images: [],
+      previewAnnotations: [],
+      retained,
+    });
+    expect(deleted.filesToRemove).toEqual(["file-2"]);
+
+    const undone = reconcileAttachmentContextReferences({
+      referencedContextIds: new Set([fileContextReference(paste).contextId]),
+      files: [pdf],
+      images: [],
+      previewAnnotations: [],
+      retained,
+    });
+    expect(undone.filesToRestore).toEqual([paste]);
   });
 });

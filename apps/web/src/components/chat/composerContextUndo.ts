@@ -6,6 +6,7 @@ import type {
 import { useEffect, useState } from "react";
 
 import type { ComposerFileAttachment, ComposerImageAttachment } from "../../composerDraftStore";
+import { isPastedTextComposerFile } from "./composerAttachmentFiles";
 import { fileContextReference, previewAnnotationContextId } from "../../lib/composerContextRecords";
 import type { TerminalContextDraft } from "../../lib/terminalContext";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
@@ -75,6 +76,7 @@ export function reconcileAttachmentContextReferences(input: {
   );
   const filesToRemove: string[] = [];
   for (const file of input.files) {
+    if (!isPastedTextComposerFile(file)) continue;
     const contextId = fileContextReference(file).contextId;
     if (input.referencedContextIds.has(contextId)) continue;
     input.retained.files.set(contextId, file);

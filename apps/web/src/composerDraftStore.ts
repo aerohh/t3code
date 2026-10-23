@@ -1,5 +1,8 @@
 import { stripInlineContextReferences } from "./lib/composerContextReferences";
-import { composerFileAttachmentMimeType } from "./components/chat/composerAttachmentFiles";
+import {
+  composerFileAttachmentMimeType,
+  isPastedTextComposerFile,
+} from "./components/chat/composerAttachmentFiles";
 import { elementContextToPreviewAnnotation } from "./lib/elementContext";
 import {
   ElementContextDetails,
@@ -2409,7 +2412,7 @@ function toHydratedThreadDraft(
       ...(persistedDraft.previewAnnotations ?? []).map(previewAnnotationContextReference),
       ...(persistedDraft.threadContexts ?? []).map(threadContextReference),
       ...(persistedDraft.environmentContexts ?? []).map(environmentContextReference),
-      ...files.map(fileContextReference),
+      ...files.filter(isPastedTextComposerFile).map(fileContextReference),
     ]),
     images: hydrateImagesFromPersisted(persistedDraft.attachments),
     files,
@@ -3385,7 +3388,9 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                   prompt: options?.appendReference
                     ? ensureInlineContextReferences(
                         prompt,
-                        [...accepted, ...replacements.values()].map(fileContextReference),
+                        [...accepted, ...replacements.values()]
+                          .filter(isPastedTextComposerFile)
+                          .map(fileContextReference),
                       )
                     : prompt,
                   files: [...retained, ...accepted],

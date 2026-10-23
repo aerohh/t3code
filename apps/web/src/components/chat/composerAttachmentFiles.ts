@@ -121,6 +121,23 @@ export function composerOtherFilesForPresentation(
   );
 }
 
+/** A folded large paste lives only as its chip in the prompt; other files live in the + tray. */
+export function isPastedTextComposerFile(file: ComposerFileAttachment): boolean {
+  return file.source?._tag === "pasted-text";
+}
+
+export function composerTrayFilesForPresentation(
+  files: ReadonlyArray<ComposerFileAttachment>,
+  environmentId: EnvironmentId,
+  inlineFileIds: ReadonlySet<string>,
+): ComposerFileAttachment[] {
+  return files.filter(
+    (file) =>
+      !isPreviewableComposerVideo(file, environmentId) &&
+      !(inlineFileIds.has(file.id) && isPastedTextComposerFile(file)),
+  );
+}
+
 export function fileAttachmentStagingLimit(input: FileAttachmentCapabilityState): number | null {
   if (!input.attachmentUploadsCapabilityKnown) {
     return PROVIDER_SEND_TURN_MAX_FILE_BYTES;

@@ -115,7 +115,7 @@ export function useComposerRestingTransition(
       element.dataset.inlineRestingControls === "true" || element.dataset.modelOnlyStrip === "true";
     const controls = nextIsCollapsed
       ? restingControlsRef.current
-      : element.querySelector<HTMLElement>('[data-chat-composer-controls="left"]');
+      : element.querySelector<HTMLElement>('[data-chat-composer-controls="expanded"]');
 
     const shell = element.closest<HTMLElement>('[data-slot="composer-shell"]');
     const modelStrip = shell?.querySelector<HTMLElement>('[data-composer-model-strip="true"]');
@@ -346,7 +346,7 @@ export function useComposerRestingTransition(
 
         const arrivingControls = nextIsCollapsed
           ? restingControlsRef.current
-          : element.querySelector<HTMLElement>('[data-chat-composer-controls="left"]');
+          : element.querySelector<HTMLElement>('[data-chat-composer-controls="expanded"]');
         if (arrivingControls && !continuousControls) {
           const drift = nextIsCollapsed
             ? -COMPOSER_RESTING_CONTROLS_ARRIVAL_DRIFT_PX
@@ -490,7 +490,7 @@ export function useComposerRestingTransition(
       const controlsRect = (
         isCollapsedRef.current
           ? restingControlsRef.current
-          : visibleTransitionElement('[data-chat-composer-controls="left"]')
+          : visibleTransitionElement('[data-chat-composer-controls="expanded"]')
       )?.getBoundingClientRect();
       previousHeightRef.current = elementRect.height;
       previousContentOffsetsRef.current = {

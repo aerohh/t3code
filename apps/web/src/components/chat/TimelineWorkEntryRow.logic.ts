@@ -6,6 +6,7 @@ import {
 } from "@t3tools/client-runtime/work-log/presentation";
 import { isJavaScriptReplTool } from "@t3tools/shared/toolActivity";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
+import { type TimelineEntry } from "../../session-logic";
 import { type TimelineWorkEntry, type TimelineRow } from "./timelineRowContext";
 import { type WorkEntryIconName } from "./TimelineToolActivityIcon";
 
@@ -190,6 +191,23 @@ export function workEntryIconName(workEntry: TimelineWorkEntry): WorkEntryIconNa
   }
 
   return workToneIcon(workEntry.tone).iconName;
+}
+
+export function runningStepIconName(
+  timelineEntries: ReadonlyArray<TimelineEntry>,
+  activeWorkStartedAt: string | null,
+): WorkEntryIconName | null {
+  if (activeWorkStartedAt === null) return null;
+  const activeWorkStartedAtMs = Date.parse(activeWorkStartedAt);
+  for (let index = timelineEntries.length - 1; index >= 0; index -= 1) {
+    const timelineEntry = timelineEntries[index];
+    // Entries run oldest to newest, so reaching one from before this turn ends the search.
+    if (!timelineEntry || Date.parse(timelineEntry.createdAt) < activeWorkStartedAtMs) return null;
+    if (timelineEntry.kind === "work" && timelineEntry.entry.toolLifecycleStatus === "inProgress") {
+      return workEntryIconName(timelineEntry.entry);
+    }
+  }
+  return null;
 }
 
 /** Compact reasoning keeps formulas while flattening other Markdown into label text. */

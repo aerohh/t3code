@@ -2337,6 +2337,29 @@ describe("composerDraftStore attachment references", () => {
     resetComposerDraftStore();
   });
 
+  it("adds a chip only for a large paste, leaving other files to the tray", () => {
+    const store = useComposerDraftStore.getState();
+    const file = {
+      type: "file" as const,
+      id: "file-1",
+      name: "notes.txt",
+      mimeType: "text/plain",
+      sizeBytes: 3,
+      file: new File(["abc"], "notes.txt", { type: "text/plain" }),
+    };
+    store.addFiles(threadRef, [file], { appendReference: true });
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.prompt).toBe("");
+
+    store.addFiles(
+      threadRef,
+      [{ ...file, id: "file-2", name: "pasted-1.txt", source: { _tag: "pasted-text" } }],
+      { appendReference: true },
+    );
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.prompt).toBe(
+      "[pasted-1.txt](t3-context://v1/file/file_file-2) ",
+    );
+  });
+
   it("reports which attachments it accepted so only those get chips", () => {
     const store = useComposerDraftStore.getState();
     const file = {
@@ -2437,7 +2460,7 @@ describe("composerDraftStore attachment references", () => {
     },
   );
 
-  it("appends chips for persisted files that predate references", () => {
+  it("restores chips only for persisted large pastes", () => {
     const persistApi = useComposerDraftStore.persist as unknown as {
       getOptions: () => {
         merge: (
@@ -2452,7 +2475,16 @@ describe("composerDraftStore attachment references", () => {
           [threadId]: {
             prompt: "old",
             attachments: [],
-            files: [{ id: "file-1", name: "notes.txt", mimeType: "text/plain", sizeBytes: 3 }],
+            files: [
+              { id: "file-1", name: "notes.txt", mimeType: "text/plain", sizeBytes: 3 },
+              {
+                id: "file-2",
+                name: "pasted-1.txt",
+                mimeType: "text/plain",
+                sizeBytes: 3,
+                source: { _tag: "pasted-text" },
+              },
+            ],
           },
         },
         draftThreadsByThreadId: {},
@@ -2460,7 +2492,9 @@ describe("composerDraftStore attachment references", () => {
       },
       useComposerDraftStore.getInitialState(),
     );
-    expect(mergedState.draftsByThreadKey[threadKeyFor(threadId)]?.prompt).toBe(`old ${fileLink} `);
+    expect(mergedState.draftsByThreadKey[threadKeyFor(threadId)]?.prompt).toBe(
+      "old [pasted-1.txt](t3-context://v1/file/file_file-2) ",
+    );
   });
 
   it("migrates legacy image references without doubling their image marker", () => {

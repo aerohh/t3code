@@ -57,3 +57,12 @@ export function getTriggerDisplayModelName(
   const shortName = resolveModelShortName(model, driverKind);
   return getDisplayModelName({ ...model, shortName }, { preferShortName: true });
 }
+
+/** The composer chip sits beside the provider's icon, so the provider's name is dropped. */
+export function getChipDisplayModelName(
+  model: ModelEsque,
+  driverKind: ProviderDriverKind | null | undefined,
+  providerDisplayName: string,
+): string {
+  return stripLeadingQualifier(getTriggerDisplayModelName(model, driverKind), providerDisplayName);
+}

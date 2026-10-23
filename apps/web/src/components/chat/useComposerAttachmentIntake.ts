@@ -26,6 +26,7 @@ import {
 import {
   classifyComposerAttachmentFile,
   composerFileAttachmentMimeType,
+  isPastedTextComposerFile,
   normalizeComposerImageFileMimeType,
 } from "./composerAttachmentFiles";
 import {
@@ -221,9 +222,10 @@ export function useComposerAttachmentIntake(input: {
     if (acceptedFiles.length > 0) {
       const storedIds = new Set(addComposerFilesToDraft(acceptedFiles));
       const storedFiles = acceptedFiles.filter((file) => storedIds.has(file.id));
-      if (storedFiles.length > 0) {
+      const storedPastes = storedFiles.filter(isPastedTextComposerFile);
+      if (storedPastes.length > 0) {
         insertedAny = insertAttachmentReferences(
-          storedFiles.map(fileContextReference),
+          storedPastes.map(fileContextReference),
           options?.selection,
         );
       }
