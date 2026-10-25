@@ -84,6 +84,12 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
         tag: ORCHESTRATION_V2_WS_METHODS.subscribeThread,
         idleTtlMs: 0,
       }),
+      // One background command's progress, held only while its strip is on screen.
+      backgroundCommandProgress: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+        label: "environment-data:orchestration-v2:background-command-progress",
+        tag: ORCHESTRATION_V2_WS_METHODS.subscribeBackgroundCommandProgress,
+        idleTtlMs: 0,
+      }),
       // One expanded command row's output. Mounted only while the row is open,
       // and released as soon as it closes, so hidden rows receive nothing.
       commandOutput: createEnvironmentRpcSubscriptionAtomFamily(runtime, {

@@ -1,10 +1,12 @@
 import type {
+  EnvironmentId,
   OrchestrationV2PendingBackgroundTask,
   OrchestrationV2ProviderGoal,
   ThreadId,
 } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
+  formatBackgroundCommandProgress,
   presentPendingBackgroundWork,
   presentProviderGoal,
 } from "@t3tools/client-runtime/state/thread-execution";
@@ -12,6 +14,9 @@ import { childThreadInputsTitle } from "@t3tools/client-runtime/state/threads";
 import { GitBranchIcon, MessageCircleIcon, ShieldQuestionIcon, TargetIcon } from "lucide-react";
 import { Fragment } from "react";
 import { cn } from "~/lib/utils";
+import { useServerConfigs } from "../../state/entities";
+import { orchestrationEnvironment } from "../../state/orchestration";
+import { useEnvironmentQuery } from "../../state/query";
 import { Button, InlineButton } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { ComposerBannerStackItem } from "./ComposerBannerStack";
@@ -95,8 +100,47 @@ export function goalNowItem(input: {
   };
 }
 
+interface BackgroundCommandRef {
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
+  readonly taskId: string;
+}
+
+/** Subscribes only while mounted, so a strip off screen receives nothing. */
+function useBackgroundCommandProgress(command: BackgroundCommandRef) {
+  const supported =
+    useServerConfigs().get(command.environmentId)?.environment.capabilities
+      .backgroundCommandProgress === true;
+  return useEnvironmentQuery(
+    supported
+      ? orchestrationEnvironment.v2.backgroundCommandProgress({
+          environmentId: command.environmentId,
+          input: { threadId: command.threadId, taskId: command.taskId },
+        })
+      : null,
+  ).data;
+}
+
+function BackgroundCommandPercent(props: BackgroundCommandRef) {
+  const progress = useBackgroundCommandProgress(props);
+  if (progress === null || progress.percent === null) return null;
+  return <span className="ms-1 tabular-nums">{`${progress.percent}%`}</span>;
+}
+
+/** Without a percent, the newest line is what shows the command is still moving. */
+function BackgroundCommandActivity(props: BackgroundCommandRef) {
+  const progress = useBackgroundCommandProgress(props);
+  if (progress === null) return null;
+  if (progress.percent !== null) {
+    return <span className="tabular-nums">{formatBackgroundCommandProgress(progress)}</span>;
+  }
+  if (progress.line === null) return null;
+  return <span className="max-w-64 truncate font-mono">{progress.line}</span>;
+}
+
 /** Background commands and subagents, for the end of the timeline. */
 export function backgroundWorkNowItem(input: {
+  readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
   readonly tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
   readonly stopDisabled: boolean;
@@ -107,6 +151,14 @@ export function backgroundWorkNowItem(input: {
   const { onOpenThread } = input;
   const presentation = presentPendingBackgroundWork(input.tasks);
   if (presentation === null) return null;
+  const commandRef = (taskId: string): BackgroundCommandRef => ({
+    environmentId: input.environmentId,
+    threadId: input.threadId,
+    taskId,
+  });
+  const [only] = presentation.items;
+  const onlyCommand =
+    presentation.items.length === 1 && only?.kind === "command" ? commandRef(only.taskId) : null;
   return {
     id: `background-work:${input.threadId}`,
     icon: (
@@ -131,6 +183,9 @@ export function backgroundWorkNowItem(input: {
                 {childThreadId === undefined ? (
                   <>
                     {item.label}
+                    {item.kind === "command" ? (
+                      <BackgroundCommandPercent {...commandRef(item.taskId)} />
+                    ) : null}
                     {separator}
                   </>
                 ) : (
@@ -149,9 +204,12 @@ export function backgroundWorkNowItem(input: {
             );
           }),
     actions: (
-      <InlineButton disabled={input.stopDisabled} onClick={() => void input.onStop()}>
-        {input.stopping ? "Stopping..." : "Stop"}
-      </InlineButton>
+      <>
+        {onlyCommand === null ? null : <BackgroundCommandActivity {...onlyCommand} />}
+        <InlineButton disabled={input.stopDisabled} onClick={() => void input.onStop()}>
+          {input.stopping ? "Stopping..." : "Stop"}
+        </InlineButton>
+      </>
     ),
   };
 }

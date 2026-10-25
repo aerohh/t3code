@@ -2,6 +2,7 @@ import { assert, it } from "@effect/vitest";
 import {
   type ModelSelection,
   type OrchestrationV2AppThread,
+  type OrchestrationV2BackgroundCommandProgressFrame,
   type OrchestrationV2CommandOutputFrame,
   type OrchestrationV2TurnItem,
   ProviderDriverKind,
@@ -361,5 +362,39 @@ layer("CommandOutputHub", (it) => {
         assert.equal(yield* Queue.take(frames), "ended");
       }),
     ),
+  );
+
+  it.effect(
+    "a background command's viewer gets its newest line, then progress once confirmed",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const hub = yield* CommandOutputHub.CommandOutputHub;
+          const threadId = yield* seedThread;
+          const taskId = "bw86pars1";
+          const frames = yield* Queue.unbounded<OrchestrationV2BackgroundCommandProgressFrame>();
+          yield* hub.subscribeBackgroundCommand({ threadId, taskId }).pipe(
+            Stream.runForEach((frame) => Queue.offer(frames, frame)),
+            Effect.forkScoped,
+          );
+
+          yield* hub.appendBackgroundCommand({ threadId, taskId, chunk: "[1/4] resolve\n" });
+          assert.deepEqual(yield* Queue.take(frames), {
+            line: "[1/4] resolve",
+            percent: null,
+            secondsLeft: null,
+          });
+
+          // Another command's output never reaches this viewer.
+          yield* hub.appendBackgroundCommand({ threadId, taskId: "other", chunk: "[3/4] x\n" });
+          yield* TestClock.adjust("1 second");
+          yield* hub.appendBackgroundCommand({ threadId, taskId, chunk: "[2/4] fetch\n" });
+          assert.deepEqual(yield* Queue.take(frames), {
+            line: "[2/4] fetch",
+            percent: 50,
+            secondsLeft: null,
+          });
+        }),
+      ),
   );
 });

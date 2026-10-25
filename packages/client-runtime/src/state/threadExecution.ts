@@ -360,6 +360,26 @@ export function presentPendingBackgroundWork(
   return { title: `${waiting ? "Waiting on" : "Running"} ${joinWithAnd(groups)}`, items, waiting };
 }
 
+function formatBackgroundCommandTimeLeft(secondsLeft: number): string {
+  if (secondsLeft < 60) return "less than a minute left";
+  const minutes = Math.round(secondsLeft / 60);
+  if (minutes < 60) return `about ${minutes}m left`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder === 0 ? `about ${hours}h left` : `about ${hours}h ${remainder}m left`;
+}
+
+/** "37% · about 4m left" for a background command, or null before it shows a percent. */
+export function formatBackgroundCommandProgress(progress: {
+  readonly percent: number | null;
+  readonly secondsLeft: number | null;
+}): string | null {
+  if (progress.percent === null) return null;
+  return progress.secondsLeft === null
+    ? `${progress.percent}%`
+    : `${progress.percent}% · ${formatBackgroundCommandTimeLeft(progress.secondsLeft)}`;
+}
+
 export interface ProviderGoalPresentation {
   readonly title: string;
   readonly objective: string;

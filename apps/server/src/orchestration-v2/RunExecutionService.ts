@@ -508,6 +508,7 @@ export function routeProviderEvent(
         state,
       ];
     case "command_output.delta":
+    case "background_command_output.delta":
       // The session manager hands live output to the command output hub; runs never see it.
       return [false, state];
     case "turn.terminal":

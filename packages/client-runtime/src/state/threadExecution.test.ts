@@ -25,6 +25,7 @@ import {
   deriveRunlessWorkStartedAt,
   deriveThreadActivityRun,
   deriveThreadRuntime,
+  formatBackgroundCommandProgress,
   threadRuntimeHasInterruptibleRun,
 } from "./threadExecution.ts";
 
@@ -391,5 +392,21 @@ describe("provider-reported model selection", () => {
         ],
       }),
     ).toBeNull();
+  });
+});
+
+describe("formatBackgroundCommandProgress", () => {
+  it("rounds the time left into words and drops it when there is no guess", () => {
+    expect(formatBackgroundCommandProgress({ percent: null, secondsLeft: 30 })).toBeNull();
+    expect(formatBackgroundCommandProgress({ percent: 37, secondsLeft: null })).toBe("37%");
+    expect(formatBackgroundCommandProgress({ percent: 37, secondsLeft: 45 })).toBe(
+      "37% · less than a minute left",
+    );
+    expect(formatBackgroundCommandProgress({ percent: 37, secondsLeft: 250 })).toBe(
+      "37% · about 4m left",
+    );
+    expect(formatBackgroundCommandProgress({ percent: 5, secondsLeft: 5_400 })).toBe(
+      "5% · about 1h 30m left",
+    );
   });
 });

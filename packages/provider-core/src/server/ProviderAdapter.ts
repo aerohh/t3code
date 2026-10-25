@@ -131,6 +131,18 @@ export const ProviderAdapterV2Event = Schema.Union([
     itemId: TurnItemId,
     chunk: Schema.String,
   }),
+  /**
+   * Raw output from a command the agent left running in the background. Never
+   * persisted: the session manager hands it to the command output hub, which
+   * turns it into progress for clients showing the thread's background work.
+   */
+  Schema.Struct({
+    type: Schema.Literal("background_command_output.delta"),
+    driver: ProviderDriverKind,
+    threadId: ThreadId,
+    taskId: Schema.String,
+    chunk: Schema.String,
+  }),
   Schema.Struct({
     type: Schema.Literal("runtime_request.updated"),
     driver: ProviderDriverKind,

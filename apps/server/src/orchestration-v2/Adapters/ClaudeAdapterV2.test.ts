@@ -93,6 +93,7 @@ import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter"
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as ClaudeAdapterV2 from "./ClaudeAdapterV2.ts";
+import { claudeTaskOutputRoot } from "./ClaudeTaskOutputTail.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import { ClaudeOrchestratorReplayHarness } from "./ClaudeAdapterV2.testkit.ts";
 import { provideDeterministicTestRuntime } from "../testkit/DeterministicRuntime.ts";
@@ -8775,6 +8776,108 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             : undefined,
           "On branch main\nwarning: dirty",
         );
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
+  );
+
+  // Live clock and a real file, as in ClaudeTaskOutputTail's tests: TestClock cannot
+  // interleave the tail's polling with filesystem IO.
+  it.live("keeps reading a backgrounded Bash call's output after its turn ends", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const tmpRoot = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "t3-claude-background-output-",
+        });
+        const root = claudeTaskOutputRoot({ CLAUDE_CODE_TMPDIR: tmpRoot }, path);
+        assert.isDefined(root);
+        const tasks = path.join(root!, "-private-tmp-project", WAKE_NATIVE_SESSION, "tasks");
+        yield* fileSystem.makeDirectory(tasks, { recursive: true });
+        const outputFile = path.join(tasks, `${WAKE_TASK_ID}.output`);
+        yield* fileSystem.writeFileString(outputFile, "[1/4] compile\n");
+
+        const harness = yield* makeWakeHarnessWithOptions({
+          environment: { CLAUDE_CODE_TMPDIR: tmpRoot },
+        });
+        const now = yield* DateTime.now;
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now,
+            attemptId: RunAttemptId.make("attempt-claude-background-output"),
+            text: "Build it in the background.",
+            attachments: [],
+          }),
+        );
+        for (const frame of [
+          claudeSdkFrame({
+            type: "assistant",
+            message: {
+              model: "claude-sonnet-4-6",
+              id: "msg_background_output",
+              type: "message",
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: WAKE_TOOL_USE_ID,
+                  name: "Bash",
+                  input: { command: "make", run_in_background: true },
+                },
+              ],
+            },
+            parent_tool_use_id: null,
+            uuid: "00000000-0000-4000-8000-000000000793",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+          wakeTaskStarted,
+          claudeSdkFrame({
+            type: "user",
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: WAKE_TOOL_USE_ID,
+                  content: `Command running in background with ID: ${WAKE_TASK_ID}.`,
+                },
+              ],
+            },
+            parent_tool_use_id: null,
+            uuid: "00000000-0000-4000-8000-000000000794",
+            session_id: WAKE_NATIVE_SESSION,
+            tool_use_result: {
+              stdout: "",
+              stderr: "",
+              interrupted: false,
+              backgroundTaskId: WAKE_TASK_ID,
+            },
+          }),
+          turnOneResult,
+        ]) {
+          yield* Queue.offer(harness.sdkMessages, frame);
+        }
+        yield* harness.awaitTerminal(1);
+
+        const backgroundOutput = () =>
+          harness.events
+            .flatMap((event) =>
+              event.type === "background_command_output.delta" &&
+              event.threadId === harness.threadId &&
+              event.taskId === WAKE_TASK_ID
+                ? [event.chunk]
+                : [],
+            )
+            .join("");
+        yield* harness.until(() => backgroundOutput().includes("[1/4] compile"));
+        yield* fileSystem.writeFileString(outputFile, "[1/4] compile\n[2/4] link\n");
+        yield* harness.until(() => backgroundOutput().includes("[2/4] link"));
       }).pipe(
         Effect.provide(
           Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),

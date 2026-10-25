@@ -1872,6 +1872,16 @@ const WsOrchestrationV2SubscribeCommandOutputRpc = Rpc.make(
   },
 );
 
+const WsOrchestrationV2SubscribeBackgroundCommandProgressRpc = Rpc.make(
+  ORCHESTRATION_V2_WS_METHODS.subscribeBackgroundCommandProgress,
+  {
+    payload: OrchestrationV2RpcSchemas.subscribeBackgroundCommandProgress.input,
+    success: OrchestrationV2RpcSchemas.subscribeBackgroundCommandProgress.output,
+    error: EnvironmentAuthorizationError,
+    stream: true,
+  },
+);
+
 const WsSubscribeTerminalEventsRpc = Rpc.make(WS_METHODS.subscribeTerminalEvents, {
   payload: Schema.Struct({}),
   success: TerminalEvent,
@@ -2228,6 +2238,7 @@ export const WsCoreRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeShellRpc,
   WsOrchestrationV2SubscribeThreadRpc,
   WsOrchestrationV2SubscribeCommandOutputRpc,
+  WsOrchestrationV2SubscribeBackgroundCommandProgressRpc,
 ).middleware(RpcScopeAuthorization);
 
 export const WsRpcGroup = WsCoreRpcGroup.merge(MessageBookmarksRpcGroup);

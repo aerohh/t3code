@@ -697,6 +697,7 @@ export const layer: Layer.Layer<
               ];
             }
             case "command_output.delta":
+            case "background_command_output.delta":
               // Live output is routed to the command output hub before ingestion.
               return [];
             case "turn.terminal":

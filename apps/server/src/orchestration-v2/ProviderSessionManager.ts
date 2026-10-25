@@ -1887,6 +1887,9 @@ export const layerWithOptions = (
             if (event.type === "command_output.delta") {
               return commandOutput.append(event);
             }
+            if (event.type === "background_command_output.delta") {
+              return commandOutput.appendBackgroundCommand(event);
+            }
             const releaseLiveOutput =
               event.type === "turn_item.updated" &&
               event.turnItem.type === "command_execution" &&

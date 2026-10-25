@@ -3577,6 +3577,7 @@ export const ORCHESTRATION_V2_WS_METHODS = {
   subscribeShell: "orchestration.subscribeShell",
   subscribeThread: "orchestration.subscribeThread",
   subscribeCommandOutput: "orchestration.subscribeCommandOutput",
+  subscribeBackgroundCommandProgress: "orchestration.subscribeBackgroundCommandProgress",
 } as const;
 
 export const OrchestrationV2SubscribeCommandOutputInput = Schema.Struct({
@@ -3596,6 +3597,30 @@ export const OrchestrationV2CommandOutputFrame = Schema.Struct({
   running: Schema.Boolean,
 });
 export type OrchestrationV2CommandOutputFrame = typeof OrchestrationV2CommandOutputFrame.Type;
+
+export const OrchestrationV2SubscribeBackgroundCommandProgressInput = Schema.Struct({
+  threadId: ThreadId,
+  /** The command's `taskId` in the thread's pending background work. */
+  taskId: TrimmedNonEmptyString,
+});
+export type OrchestrationV2SubscribeBackgroundCommandProgressInput =
+  typeof OrchestrationV2SubscribeBackgroundCommandProgressInput.Type;
+
+/**
+ * Where a command the agent left running in the background has got to, read
+ * by the server from its output. Never persisted. Nothing is sent until the
+ * command prints, and the stream lasts until the client unsubscribes.
+ */
+export const OrchestrationV2BackgroundCommandProgressFrame = Schema.Struct({
+  /** The newest non-blank output line, without colour codes. */
+  line: Schema.NullOr(Schema.String),
+  /** 0-100, only once the output has shown a count or percent the server trusts. */
+  percent: Schema.NullOr(Schema.Number),
+  /** A guess from the recent rate; null until progress has moved for a while. */
+  secondsLeft: Schema.NullOr(Schema.Number),
+});
+export type OrchestrationV2BackgroundCommandProgressFrame =
+  typeof OrchestrationV2BackgroundCommandProgressFrame.Type;
 
 export class OrchestrationV2CommandOutputError extends Schema.TaggedError<OrchestrationV2CommandOutputError>()(
   "OrchestrationV2CommandOutputError",
@@ -4197,6 +4222,10 @@ export const OrchestrationV2RpcSchemas = {
   subscribeCommandOutput: {
     input: OrchestrationV2SubscribeCommandOutputInput,
     output: OrchestrationV2CommandOutputFrame,
+  },
+  subscribeBackgroundCommandProgress: {
+    input: OrchestrationV2SubscribeBackgroundCommandProgressInput,
+    output: OrchestrationV2BackgroundCommandProgressFrame,
   },
 } as const;
 
