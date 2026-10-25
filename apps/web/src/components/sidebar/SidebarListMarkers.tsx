@@ -71,6 +71,25 @@ export function SidebarEmptyShelfHeader(props: { marker: "done-header" | "workin
   return <SortableSidebarMarker marker={props.marker} className="h-0" />;
 }
 
+export function SidebarDayLabel(props: {
+  marker: "today-header" | "older-header";
+  label: string;
+  /** Sits under a box, so it overlaps the box's mb-3 instead of adding to it. */
+  pullsUp: boolean;
+}) {
+  return (
+    <SortableSidebarMarker
+      marker={props.marker}
+      className={cn(
+        "pointer-events-none mx-0.5 flex h-12 items-end px-2 pb-0.5 text-xs font-medium text-sidebar-muted-foreground/60",
+        props.pullsUp && "-mt-3",
+      )}
+    >
+      {props.label}
+    </SortableSidebarMarker>
+  );
+}
+
 export function SidebarDragBoundary(props: {
   marker: "pinned-header" | "pinned-divider";
   label: string;

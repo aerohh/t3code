@@ -193,7 +193,9 @@ export type SidebarListMarker =
   | "done-header"
   | "working-header"
   | "snoozed-header"
-  | "settled-header";
+  | "settled-header"
+  | "today-header"
+  | "older-header";
 
 export function sidebarMarkerId(marker: SidebarListMarker): string {
   return `${SIDEBAR_MARKER_PREFIX}${marker}`;
@@ -738,6 +740,41 @@ const SIDEBAR_TAG_BOX_MIN_THREADS = 2;
 /** Done and In progress follow the folders' rule: one chat is a plain row, not a box. */
 export function isSidebarShelfBoxed(threads: readonly unknown[]): boolean {
   return threads.length >= SIDEBAR_TAG_BOX_MIN_THREADS;
+}
+
+export type SidebarDayLabels = {
+  readonly showToday: boolean;
+  /** Index of the first loose chat that goes under "Older", or null for no label. */
+  readonly olderStartIndex: number | null;
+};
+
+export const NO_SIDEBAR_DAY_LABELS: SidebarDayLabels = { showToday: false, olderStartIndex: null };
+
+/** When you last used a chat: the time its row shows, and what the beta's
+    loose list sorts by, so the Today and Older labels agree with the rows. */
+export function sidebarThreadLastUsedMs(thread: ThreadSortInput): number {
+  return getThreadSortTimestamp(thread, "updated_at");
+}
+
+export function isBeforeLocalToday(timeMs: number, nowMs: number): boolean {
+  const now = new Date(nowMs);
+  return timeMs < new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+}
+
+/** The loose list is newest first, so one split point divides it into today and older. */
+export function resolveSidebarDayLabels(input: {
+  readonly looseThreadLastUsedTimes: readonly number[];
+  readonly nowMs: number;
+  readonly hasDoneOrInProgressThreads: boolean;
+}): SidebarDayLabels {
+  const times = input.looseThreadLastUsedTimes;
+  const firstOlderIndex = times.findIndex((time) => isBeforeLocalToday(time, input.nowMs));
+  const todayCount = firstOlderIndex === -1 ? times.length : firstOlderIndex;
+  const olderCount = times.length - todayCount;
+  return {
+    showToday: input.hasDoneOrInProgressThreads && todayCount > 0,
+    olderStartIndex: todayCount > 0 && olderCount > 0 ? todayCount : null,
+  };
 }
 
 /**

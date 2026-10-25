@@ -30,7 +30,9 @@ import {
   shouldRecedeSidebarThread,
   sortInboxThreadsByReturn,
   resolveSidebarDropTarget,
+  resolveSidebarDayLabels,
   sidebarMarkerId,
+  sidebarThreadLastUsedMs,
   planSidebarThreadDrop,
   sortPinnedThreadsForSidebar,
   sortProjectsForSidebar,
@@ -280,6 +282,47 @@ describe("sidebar thread tags", () => {
     const lifted = groupSidebarThreadsByTag(threads, tagNames, new Map([["billing", 1]]));
     expect(lifted.boxes.map((box) => [box.tagKey, box.threads.length])).toEqual([["billing", 1]]);
     expect(lifted.looseThreads.map((thread) => thread.id)).toEqual(["loose-1", "ops-1", "loose-2"]);
+  });
+
+  it("labels Older only below a chat from today, and Today only under Done or In progress", () => {
+    const nowMs = new Date(2026, 9, 25, 9, 0).getTime();
+    const today = new Date(2026, 9, 25, 0, 0).getTime();
+    const yesterday = new Date(2026, 9, 24, 23, 59).getTime();
+    const labels = (times: number[], hasDoneOrInProgressThreads: boolean) =>
+      resolveSidebarDayLabels({
+        looseThreadLastUsedTimes: times,
+        nowMs,
+        hasDoneOrInProgressThreads,
+      });
+
+    expect(labels([today, yesterday], true)).toEqual({ showToday: true, olderStartIndex: 1 });
+    expect(labels([today, today], true)).toEqual({ showToday: true, olderStartIndex: null });
+    expect(labels([yesterday], true)).toEqual({ showToday: false, olderStartIndex: null });
+    expect(labels([today, yesterday], false)).toEqual({ showToday: false, olderStartIndex: 1 });
+    expect(labels([yesterday, yesterday], false)).toEqual({
+      showToday: false,
+      olderStartIndex: null,
+    });
+    expect(labels([today], false)).toEqual({ showToday: false, olderStartIndex: null });
+    expect(labels([], true)).toEqual({ showToday: false, olderStartIndex: null });
+  });
+
+  it("puts a chat restored today under Older when it was last used days ago", () => {
+    const nowMs = new Date(2026, 9, 25, 9, 0).getTime();
+    const fourDaysAgo = new Date(2026, 9, 21, 15, 0).toISOString();
+    const restoredToday = {
+      createdAt: fourDaysAgo,
+      updatedAt: new Date(2026, 9, 25, 8, 30).toISOString(),
+      latestUserMessageAt: fourDaysAgo,
+      unsettledAt: new Date(2026, 9, 25, 8, 30).toISOString(),
+    };
+    expect(
+      resolveSidebarDayLabels({
+        looseThreadLastUsedTimes: [nowMs, sidebarThreadLastUsedMs(restoredToday)],
+        nowMs,
+        hasDoneOrInProgressThreads: true,
+      }),
+    ).toEqual({ showToday: true, olderStartIndex: 1 });
   });
 
   it("gives a tag whose chats are all settled a settled box but no active box", () => {

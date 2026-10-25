@@ -33,7 +33,7 @@ import {
   createInboxReturnTracker,
   isThreadWorking,
 } from "@t3tools/client-runtime/state/thread-inbox";
-import { sortSettledThreads } from "@t3tools/client-runtime/state/thread-sort";
+import { sortSettledThreads, sortThreads } from "@t3tools/client-runtime/state/thread-sort";
 import {
   nextShownOrder,
   threadSearchMatchKey,
@@ -204,7 +204,10 @@ import {
   sidebarListItemId,
   sidebarMarkerId,
   sidebarThreadKeyAtY,
-  sortInboxThreadsByReturn,
+  isBeforeLocalToday,
+  resolveSidebarDayLabels,
+  sidebarThreadLastUsedMs,
+  NO_SIDEBAR_DAY_LABELS,
   sortPinnedThreadsForSidebar,
   sortThreadsForSidebar,
   sortDoneThreadsByFinish,
@@ -224,6 +227,7 @@ import {
   createSidebarCollisionDetection,
   createSidebarSortingStrategy,
   restrictBelowSidebarLabel,
+  sidebarDayLabelPullsUp,
 } from "./Sidebar.drag";
 import { SidebarPointerSensor } from "./Sidebar.pointer";
 import { createSidebarListMotion } from "./Sidebar.motion";
@@ -267,6 +271,7 @@ import {
   SidebarSectionHeader,
   SidebarSectionPlaceholder,
   SidebarEmptyShelfHeader,
+  SidebarDayLabel,
   SidebarTagBoxHeader,
   SortableSidebarTagBoxItem,
 } from "./sidebar/SidebarListMarkers";
@@ -377,7 +382,8 @@ const NO_DRAGGED_ORDER: readonly string[] = [];
 const NO_DRAGGED_ORDERS: {
   readonly settledOrder: readonly string[];
   readonly activeOrder: readonly string[] | undefined;
-} = { settledOrder: NO_DRAGGED_ORDER, activeOrder: undefined };
+  readonly draggedThreadIsOlder: boolean;
+} = { settledOrder: NO_DRAGGED_ORDER, activeOrder: undefined, draggedThreadIsOlder: false };
 
 function resolveDraggedOrders(input: {
   readonly drag: { readonly activeKey: string; readonly occurredAt: string };
@@ -397,11 +403,15 @@ function resolveDraggedOrders(input: {
       applySidebarThreadDrop(thread, "settled", drag.occurredAt),
     ]).map(threadShellKey),
     activeOrder: workingShelfEnabled
-      ? sortInboxThreadsByReturn(
+      ? sortThreads(
           [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
-          inboxReturns.returnedAt,
+          "updated_at",
         ).map(threadShellKey)
       : undefined,
+    draggedThreadIsOlder: isBeforeLocalToday(
+      sidebarThreadLastUsedMs(thread),
+      Date.parse(drag.occurredAt),
+    ),
   };
 }
 
@@ -536,6 +546,15 @@ function useSidebarThreads(input: {
     tagDisplayNames,
   );
   const boxedSettledCount = listedSettledThreads.length - looseSettledThreads.length;
+  // Only the beta's inbox sort is newest first by this same time, which the
+  // single split point relies on.
+  const looseActiveDayLabels = workingShelfEnabled
+    ? resolveSidebarDayLabels({
+        looseThreadLastUsedTimes: looseActiveThreads.map(sidebarThreadLastUsedMs),
+        nowMs: Date.parse(`${nowMinute}:00.000Z`),
+        hasDoneOrInProgressThreads: doneThreads.length + workingThreads.length > 0,
+      })
+    : NO_SIDEBAR_DAY_LABELS;
   const visibleSettledThreads = (() => {
     const visible = looseSettledThreads.slice(0, settledVisibleCount);
     if (
@@ -648,6 +667,7 @@ function useSidebarThreads(input: {
         count: current.count + SETTLED_TAIL_PAGE_COUNT,
       })),
     looseActiveThreads,
+    looseActiveDayLabels,
     looseSettledThreads,
     renderedActiveTagBoxes,
     renderedSettledTagBoxes,
@@ -769,7 +789,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   // Capability gates dragging only; mixed server versions must preserve the same pinned order across clients.
   const sortedPinned = sortPinnedThreadsForSidebar(pinned);
   const sortedActive = workingShelfEnabled
-    ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt)
+    ? sortThreads(active, "updated_at")
     : sortThreadsForSidebar(active);
   return {
     pinnedThreads:
@@ -1351,6 +1371,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     pinnedKeysById,
     activeKeysById,
     looseActiveThreads,
+    looseActiveDayLabels,
     looseSettledThreads,
     renderedActiveTagBoxes,
     renderedSettledTagBoxes,
@@ -1999,7 +2020,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     items.push(...tagBoxItemsOf(renderedActiveTagBoxes, "active"));
     const activeRows = rowsOf(looseActiveThreads, "active");
     items.push({ kind: "marker", marker: "active-placeholder" });
-    items.push(...activeRows);
+    if (looseActiveDayLabels.showToday) items.push({ kind: "marker", marker: "today-header" });
+    const { olderStartIndex } = looseActiveDayLabels;
+    if (olderStartIndex === null) {
+      items.push(...activeRows);
+    } else {
+      items.push(...activeRows.slice(0, olderStartIndex));
+      items.push({ kind: "marker", marker: "older-header" });
+      items.push(...activeRows.slice(olderStartIndex));
+    }
     if (snoozedThreads.length > 0) {
       items.push({ kind: "marker", marker: "snoozed-header" });
       items.push(...rowsOf(visibleSnoozedThreads, "snoozed"));
@@ -2064,19 +2093,23 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     );
   };
   const sortableIds = sidebarListItems.map(sidebarListItemId);
-  // Keep non-drag orders constant to preserve sorting strategy and row identity during streaming.
-  const { settledOrder: draggedSettledOrder, activeOrder: draggedActiveOrder } =
-    dragState === null
-      ? NO_DRAGGED_ORDERS
-      : resolveDraggedOrders({
-          drag: dragState,
-          threadByKey,
-          // A drop lands in the loose tail. A collapsed shelf renders only the open
-          // thread, tagged or not, so there every settled thread keeps its rank.
-          settledThreads: settledShelfExpanded ? looseSettledThreads : settledThreads,
-          activeThreads: looseActiveThreads,
-          workingShelfEnabled,
-        });
+  // Outside a drag the orders are constants, so the strategy, and with it
+  // every sortable row, keeps its identity while thread shells stream in.
+  const {
+    settledOrder: draggedSettledOrder,
+    activeOrder: draggedActiveOrder,
+    draggedThreadIsOlder,
+  } = dragState === null
+    ? NO_DRAGGED_ORDERS
+    : resolveDraggedOrders({
+        drag: dragState,
+        threadByKey,
+        // A drop lands in the loose tail. A collapsed shelf renders only the open
+        // thread, tagged or not, so there every settled thread keeps its rank.
+        settledThreads: settledShelfExpanded ? looseSettledThreads : settledThreads,
+        activeThreads: looseActiveThreads,
+        workingShelfEnabled,
+      });
   const sidebarSortingStrategy = createSidebarSortingStrategy({
     items: sidebarListItems,
     enabled: !isContextDrag,
@@ -2087,6 +2120,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     settledVisibleCount,
     routeThreadKey: routeRowThreadKey,
     snoozedThreadCount: snoozedThreads.length,
+    draggedThreadIsOlder,
   });
   const draggedThreadKey = dragState?.activeKey;
   const draggedFromSection = dragState?.activeSection;
@@ -3572,6 +3606,26 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                       dragTargetSection !== "active"))
                                 }
                                 isDropTarget={dragTargetSection === "active"}
+                              />,
+                            );
+                            break;
+                          case "today-header":
+                            items.push(
+                              <SidebarDayLabel
+                                key="today-header"
+                                marker="today-header"
+                                label="Today"
+                                pullsUp={sidebarDayLabelPullsUp(sidebarListItems, index)}
+                              />,
+                            );
+                            break;
+                          case "older-header":
+                            items.push(
+                              <SidebarDayLabel
+                                key="older-header"
+                                marker="older-header"
+                                label="Older"
+                                pullsUp={sidebarDayLabelPullsUp(sidebarListItems, index)}
                               />,
                             );
                             break;

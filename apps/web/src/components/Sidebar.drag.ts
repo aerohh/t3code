@@ -39,6 +39,14 @@ const gapBelow = (item: SidebarListItem, next: SidebarListItem | undefined) =>
   isTagBoxItem(item) && !(next !== undefined && overlapsListGapAbove(next))
     ? SIDEBAR_TAG_BOX_BOTTOM_GAP_PX
     : 0;
+const isDayLabel = (item: SidebarListItem | undefined) =>
+  item?.kind === "marker" && (item.marker === "today-header" || item.marker === "older-header");
+// A Today or Older label right under a box pulls up over the box's bottom gap,
+// so its top stays put when a chat moves into or out of the box and the list's
+// move animation has nothing to slide.
+export const sidebarDayLabelPullsUp = (items: readonly SidebarListItem[], index: number) =>
+  isDayLabel(items[index]) &&
+  isTagBoxItem(items.slice(0, index).findLast((item) => item.kind !== "marker"));
 
 export function restrictBelowSidebarLabel(
   { transform, containerNodeRect, draggingNodeRect }: Parameters<Modifier>[0],
@@ -137,6 +145,7 @@ export function createSidebarSortingStrategy(input: {
   cardHeight?: number;
   slimHeight?: number;
   boundaryLabelHeight?: number;
+  draggedThreadIsOlder?: boolean;
 }): SortingStrategy {
   if (input.enabled === false) return () => stationary;
   const { items } = input;
@@ -234,7 +243,33 @@ export function createSidebarSortingStrategy(input: {
     }
     marker("pinned-divider");
     projected.push(...activeTagBoxItems);
-    section("active");
+    if (hasMarker("today-header")) marker("today-header");
+    // "Older" goes above the first older chat, which may be the dragged one,
+    // and only below a chat from today.
+    const olderHeaderIndex = items.findIndex(
+      (item) => item.kind === "marker" && item.marker === "older-header",
+    );
+    const olderKeys = new Set(
+      olderHeaderIndex === -1
+        ? []
+        : items
+            .slice(olderHeaderIndex + 1)
+            .flatMap((item) =>
+              item.kind === "thread" && item.section === "active" && item.key !== active.key
+                ? [item.key]
+                : [],
+            ),
+    );
+    // Only an "Older" row already in the list can be moved into place.
+    if (olderHeaderIndex !== -1 && input.draggedThreadIsOlder) olderKeys.add(active.key);
+    const firstOlderIndex = groups.active.findIndex((item) => olderKeys.has(item.key));
+    if (firstOlderIndex <= 0) {
+      section("active");
+    } else {
+      projected.push(...groups.active.slice(0, firstOlderIndex));
+      marker("older-header");
+      projected.push(...groups.active.slice(firstOlderIndex));
+    }
     if (
       groups.snoozed.length > 0 ||
       ((active.section !== "snoozed" || (input.snoozedThreadCount ?? 0) > 1) &&
@@ -268,12 +303,16 @@ export function createSidebarSortingStrategy(input: {
     const shelfRect = rects[firstShelf];
     const beforeShelf = rects[firstShelf - 1];
     const lastRect = rects.at(-1);
+    const pullUp = projected.map((_, index) =>
+      sidebarDayLabelPullsUp(projected, index) ? SIDEBAR_TAG_BOX_BOTTOM_GAP_PX : 0,
+    );
     const stackHeight = projected.reduce(
       (sum, item, index) =>
         sum +
         heights[index]! +
         (overlapsListGapAbove(item) ? 0 : 1) +
-        gapBelow(item, projected[index + 1]),
+        gapBelow(item, projected[index + 1]) -
+        pullUp[index]!,
       -1,
     );
     let shelfSpace =
@@ -288,6 +327,7 @@ export function createSidebarSortingStrategy(input: {
         shelfSpace = 0;
       }
       if (overlapsListGapAbove(item)) top -= 1;
+      top -= pullUp[projectedIndex]!;
       const index = indices.get(sidebarListItemId(item));
       const rect = index === undefined ? undefined : rects[index];
       if (index !== undefined && rect) result[index] = { ...stationary, y: top - rect.top };
