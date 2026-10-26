@@ -1,5 +1,7 @@
 import type { Paragraph, PhrasingContent, Root, RootContent } from "mdast";
 import { remarkKeepWindowsPaths } from "./markdownWindowsPaths.ts";
+import { parseComposerContextHref } from "./composerContextReferences.ts";
+import { mediaKindFromPath } from "./filePreview.ts";
 import type { PluggableList } from "unified";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
@@ -124,6 +126,131 @@ function rehypePreserveImageSourceMeta() {
     visit(tree);
     markStandaloneImages(tree);
   };
+}
+
+function foldableImage(node: MarkdownImageHastNode): MarkdownImageHastNode | undefined {
+  const image = soleImageDescendant({ children: [node] });
+  const src = image?.properties?.src;
+  if (typeof src !== "string") return undefined;
+  if (parseComposerContextHref(src) !== null || mediaKindFromPath(src) === "video") {
+    return undefined;
+  }
+  return image;
+}
+
+function splitAtLineBreaks(children: MarkdownImageHastNode[]): MarkdownImageHastNode[][] {
+  const lines: MarkdownImageHastNode[][] = [[]];
+  for (const child of children) {
+    if (child.type === "element" && child.tagName === "br") lines.push([]);
+    else lines.at(-1)!.push(child);
+  }
+  return lines;
+}
+
+const isBlankText = (node: MarkdownImageHastNode | undefined) =>
+  node?.type === "text" && node.value?.trim() === "";
+
+function trimBlankEdges(line: MarkdownImageHastNode[]): MarkdownImageHastNode[] {
+  let start = 0;
+  let end = line.length;
+  while (isBlankText(line[start])) start++;
+  while (isBlankText(line[end - 1])) end--;
+  const trimmed = line.slice(start, end);
+  const first = trimmed[0];
+  if (first?.type === "text" && first.value !== undefined) {
+    trimmed[0] = { ...first, value: first.value.trimStart() };
+  }
+  const lastIndex = trimmed.length - 1;
+  const last = trimmed[lastIndex];
+  if (last?.type === "text" && last.value !== undefined) {
+    trimmed[lastIndex] = { ...last, value: last.value.trimEnd() };
+  }
+  return trimmed;
+}
+
+function lineImage(line: MarkdownImageHastNode[]): MarkdownImageHastNode | undefined {
+  const meaningful = meaningfulHastChildren({ children: line });
+  return meaningful.length === 1 ? meaningful[0] : undefined;
+}
+
+const IMAGE_FOLD_CONTAINERS = new Set(["ul", "ol", "li", "blockquote"]);
+
+function foldImageRunsIn(container: MarkdownImageHastNode) {
+  const output: MarkdownImageHastNode[] = [];
+  let fold: MarkdownImageHastNode | null = null;
+  const addImage = (node: MarkdownImageHastNode, image: MarkdownImageHastNode) => {
+    image.properties = { ...image.properties, dataStandalone: true };
+    if (!fold) {
+      fold = { type: "element", tagName: "div", properties: { dataImageFold: true }, children: [] };
+      output.push(fold);
+    }
+    fold.children!.push(node);
+  };
+
+  for (const child of container.children ?? []) {
+    if (child.type === "text" && child.value?.trim() === "") {
+      if (!fold) output.push(child);
+      continue;
+    }
+    const directImage = foldableImage(child);
+    if (directImage) {
+      addImage(child, directImage);
+      continue;
+    }
+    if (child.type === "element" && child.tagName === "p") {
+      const lines = splitAtLineBreaks(child.children ?? []);
+      const lineImages = lines.map((line) => {
+        const only = lineImage(line);
+        return only ? foldableImage(only) : undefined;
+      });
+      if (lineImages.every((image) => image === undefined)) {
+        fold = null;
+        output.push(child);
+        continue;
+      }
+      // An image on its own line leaves the paragraph, so labels above it stay as text.
+      let textLines: MarkdownImageHastNode[][] = [];
+      const flushText = () => {
+        if (textLines.length === 0) return;
+        output.push({
+          ...child,
+          children: textLines.flatMap((line, index) =>
+            index === 0
+              ? line
+              : [{ type: "element", tagName: "br", properties: {}, children: [] }, ...line],
+          ),
+        });
+        textLines = [];
+      };
+      lines.forEach((line, index) => {
+        const image = lineImages[index];
+        if (image) {
+          flushText();
+          addImage(lineImage(line)!, image);
+        } else if (meaningfulHastChildren({ children: line }).length > 0) {
+          fold = null;
+          textLines.push(trimBlankEdges(line));
+        }
+      });
+      flushText();
+      continue;
+    }
+    fold = null;
+    if (child.type === "element" && IMAGE_FOLD_CONTAINERS.has(child.tagName ?? "")) {
+      foldImageRunsIn(child);
+    }
+    output.push(child);
+  }
+  container.children = output;
+}
+
+/**
+ * Wraps each run of images with nothing but blank lines between them in a
+ * `div[dataImageFold]`, so a reply can show them folded. It runs after
+ * sanitizing, which would strip the marker.
+ */
+export function rehypeFoldImageRuns() {
+  return (tree: MarkdownImageHastNode) => foldImageRunsIn(tree);
 }
 
 const CHAT_MARKDOWN_SANITIZE_SCHEMA = {

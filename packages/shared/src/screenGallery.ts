@@ -33,6 +33,10 @@ interface MarkdownNode {
 const markdownParser = unified().use(remarkParse).use(remarkGfm);
 const GALLERY_TITLE_PATTERN = /^\s*(gallery|before)\s*:\s*(.+?)\s*$/i;
 
+export function galleryScreenFromImageTitle(title: string | null | undefined): string | null {
+  return title?.match(GALLERY_TITLE_PATTERN)?.[2] ?? null;
+}
+
 export function markdownGalleryImages(markdown: string): MarkdownGalleryImage[] {
   if (!markdown.includes("![")) return [];
   const images: MarkdownGalleryImage[] = [];

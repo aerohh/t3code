@@ -2,7 +2,11 @@ import { expect, it } from "vite-plus/test";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
-import { CHAT_MARKDOWN_REHYPE_PLUGINS, CHAT_MARKDOWN_REMARK_PLUGINS } from "./markdownPipeline.ts";
+import {
+  CHAT_MARKDOWN_REHYPE_PLUGINS,
+  CHAT_MARKDOWN_REMARK_PLUGINS,
+  rehypeFoldImageRuns,
+} from "./markdownPipeline.ts";
 
 it("preserves in-app thread links through the shared Markdown sanitizer", () => {
   const processor = unified()
@@ -75,4 +79,44 @@ it("keeps an image on its own line under a label but leaves inline images inline
   ).toBe("Palette<br>\n<img><br>\nHero (dark)<br>\n<img>");
   expect(render("Built [![CI](/ci.svg)](/ci)\nand wrapped")).toBe("Built <img>\nand wrapped");
   expect(render("Hard-wrapped\nprose")).toBe("Hard-wrapped\nprose");
+});
+
+it("folds each run of back-to-back images and keeps text between runs outside", () => {
+  const processor = unified()
+    .use(remarkParse)
+    .use(CHAT_MARKDOWN_REMARK_PLUGINS)
+    .use(remarkRehype, { allowDangerousHtml: true })
+    .use(CHAT_MARKDOWN_REHYPE_PLUGINS)
+    .use(rehypeFoldImageRuns);
+  type Node = {
+    type: string;
+    value?: string;
+    tagName?: string;
+    properties?: Record<string, unknown>;
+    children?: Node[];
+  };
+  const outline = (markdown: string) =>
+    ((processor.runSync(processor.parse(markdown)) as Node).children ?? [])
+      .filter((node) => node.type === "element")
+      .map((node) =>
+        node.properties?.dataImageFold
+          ? `fold(${(node.children ?? []).map((image) => image.properties?.alt).join(",")})`
+          : `${node.tagName}(${JSON.stringify((node.children ?? []).map((child) => child.value ?? child.tagName).join(""))})`,
+      );
+
+  expect(outline("Checked:\n\n![a](/a.png)\n\n![b](/b.png)\n![c](/c.png)\n\nDone.")).toEqual([
+    'p("Checked:")',
+    "fold(a,b,c)",
+    'p("Done.")',
+  ]);
+  expect(outline("**Before**\n![a](/a.png)\n**After**\n![b](/b.png)")).toEqual([
+    'p("strong")',
+    "fold(a)",
+    'p("strong")',
+    "fold(b)",
+  ]);
+  expect(outline("See ![badge](/b.svg) here.\n\n![clip](/clip.mp4)")).toEqual([
+    'p("See img here.")',
+    'p("img")',
+  ]);
 });

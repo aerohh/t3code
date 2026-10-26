@@ -1,15 +1,18 @@
 import { MISSING_FILE_ACCESS_MESSAGE } from "@t3tools/client-runtime/state/assets";
 import { mediaFileReference, mediaUrlReference } from "@t3tools/client-runtime/media-reference";
 import type { AssetResource, EnvironmentId, SOURCE_CONTROL_MEDIA_ASSET } from "@t3tools/contracts";
-import { TriangleAlertIcon } from "lucide-react";
+import { galleryScreenFromImageTitle } from "@t3tools/shared/screenGallery";
+import { ChevronRightIcon, TriangleAlertIcon } from "lucide-react";
 import {
   createContext,
   memo,
+  useRef,
   useState,
   type ComponentProps,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from "react";
 
 import { useAssetUrlRefresh, useAssetUrlState } from "../../assets/assetUrls";
@@ -269,6 +272,79 @@ export function ChatMarkdownImage(props: {
         ) : null}
       </span>
     </MediaActions>
+  );
+}
+
+function imageFoldName(image: { readonly alt: string; readonly title: string | undefined }) {
+  const screen = galleryScreenFromImageTitle(image.title);
+  if (screen) return screen;
+  const alt = image.alt.trim();
+  return alt.length > 32 ? `${alt.slice(0, 31).replace(/\s+\S*$/, "")}…` : alt;
+}
+
+/**
+ * The pictures stay mounted while folded, shrunk into the bar, so opening
+ * does not reload them and the full-size viewer can still step through them.
+ */
+export function ChatMarkdownImageFold(props: {
+  readonly images: ReadonlyArray<{ readonly alt: string; readonly title: string | undefined }>;
+  readonly children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const imagesRef = useRef<HTMLDivElement>(null);
+  const count = props.images.length;
+  const names = [
+    ...new Map(
+      props.images
+        .map(imageFoldName)
+        .filter((name) => name !== "")
+        .map((name) => [name.toLowerCase(), name]),
+    ).values(),
+  ].join(", ");
+  const toggle = (event: ReactMouseEvent) => {
+    if (open && imagesRef.current?.contains(event.target as Node)) return;
+    setOpen((current) => !current);
+  };
+
+  return (
+    <div
+      className={cn(
+        "my-2 flex flex-wrap items-center gap-x-2 gap-y-2 rounded-lg border border-border/60 px-2.5 py-1.5 text-xs text-muted-foreground",
+        !open && "cursor-pointer hover:bg-accent/40",
+      )}
+      onClick={toggle}
+    >
+      <ChevronRightIcon
+        aria-hidden
+        className={cn("size-3.5 shrink-0 cursor-pointer transition-transform", open && "rotate-90")}
+      />
+      <div
+        ref={imagesRef}
+        inert={!open}
+        className={
+          open
+            ? "order-last flex basis-full flex-col items-start gap-2 pb-1"
+            : cn(
+                "flex h-6 shrink-0 items-center gap-1 overflow-hidden [&>*:nth-child(n+4)]:hidden",
+                "[&_img]:h-6! [&_img]:max-h-6! [&_img]:w-auto! [&_img]:max-w-12! [&_img]:rounded-sm! [&_img]:object-cover",
+                "[&_[role=status]]:h-6! [&_[role=status]]:w-10! [&_[role=status]]:rounded-sm!",
+              )
+        }
+      >
+        {props.children}
+      </div>
+      <button
+        type="button"
+        aria-expanded={open}
+        data-thread-find-ignore
+        className="min-w-0 flex-1 cursor-pointer truncate text-start select-none focus-visible:underline focus-visible:outline-none"
+      >
+        <span className="font-medium text-foreground/80">
+          {count} {count === 1 ? "screenshot" : "screenshots"}
+        </span>
+        {names ? ` · ${names}` : null}
+      </button>
+    </div>
   );
 }
 
