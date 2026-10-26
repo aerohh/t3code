@@ -19,4 +19,11 @@ describe("ThreadMetadataMcpUpdateInput", () => {
       decodeUpdate({ action: "regenerate_title", clientRequestId: "metadata-\udc00" }),
     );
   });
+
+  it("requires a summary for update_summary and accepts one only there", () => {
+    const summary = { about: "Fixing the login loop.", verdict: "Fixed.", stillOpen: [] };
+    assert.deepEqual(decodeUpdate({ action: "update_summary", summary }).summary, summary);
+    assert.throws(() => decodeUpdate({ action: "update_summary" }));
+    assert.throws(() => decodeUpdate({ action: "rename", title: "Login", summary }));
+  });
 });

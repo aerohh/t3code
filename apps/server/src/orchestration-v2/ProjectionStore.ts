@@ -887,6 +887,7 @@ export function applyToProjection(
     case "thread.marked-unread":
     // A tag is filing, not activity, and a bump would wake a snoozed thread on clients.
     case "thread.tag-set":
+    case "thread.summary-set":
       return {
         ...projection,
         thread: event.payload,
@@ -2061,6 +2062,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             case "thread.unsnoozed":
             case "thread.auto-settle-set":
             case "thread.tag-set":
+            case "thread.summary-set":
             case "thread.pinned":
             case "thread.unpinned":
             case "thread.pin-reordered":
@@ -2895,6 +2897,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             event.type !== "thread.unsnoozed" &&
             event.type !== "thread.auto-settle-set" &&
             event.type !== "thread.tag-set" &&
+            event.type !== "thread.summary-set" &&
             event.type !== "thread.pinned" &&
             event.type !== "thread.unpinned" &&
             event.type !== "thread.pin-reordered" &&

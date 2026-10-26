@@ -601,6 +601,47 @@ it.effect("sets, changes and clears a thread tag without counting it as activity
   }).pipe(Effect.provide(layerTest)),
 );
 
+it.effect("saves and replaces a thread summary without counting it as activity", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const threadId = ThreadId.make("thread:summary-set");
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("create-summary-set"),
+      threadId,
+      projectId: ProjectId.make("project:summary-set"),
+      title: "Summarized",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdBy: "user",
+      creationSource: "web",
+    });
+    const created = yield* projections.getThread(threadId);
+    assert.isUndefined(created.summary);
+
+    const summaries = [
+      { about: "Fixing the login loop.", verdict: "Cause not found yet.", stillOpen: ["Find it"] },
+      { about: "Fixing the login loop.", verdict: "Fixed and tested.", stillOpen: [] },
+    ];
+    for (const [index, summary] of summaries.entries()) {
+      yield* TestClock.adjust("1 minute");
+      yield* orchestrator.dispatch({
+        type: "thread.summary.set",
+        commandId: CommandId.make(`summary-set-${index}`),
+        threadId,
+        summary,
+      });
+      const thread = yield* projections.getThread(threadId);
+      assert.deepEqual(thread.summary, summary);
+      assert.deepEqual(thread.updatedAt, created.updatedAt);
+    }
+  }).pipe(Effect.provide(layerTest)),
+);
+
 it.effect("implements a proposed plan that the command projection leaves out", () =>
   Effect.gen(function* () {
     const orchestrator = yield* Orchestrator.OrchestratorV2;

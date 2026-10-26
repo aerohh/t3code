@@ -1,6 +1,7 @@
 import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
+  type OrchestrationV2ThreadSummary,
   type ThreadId,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -17,9 +18,11 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from "react";
 import { isTrailingDoubleClick } from "../Sidebar.logic";
 import { Badge } from "../ui/badge";
+import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../ui/preview-card";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
@@ -47,6 +50,7 @@ interface ChatHeaderProps {
   activeThreadId: ThreadId;
   activeThreadTitle: string;
   activeThreadLinkOrigin?: string | null | undefined;
+  activeThreadSummary: OrchestrationV2ThreadSummary | null;
   isServerThread: boolean;
   activeProject: EnvironmentProject | null;
   parentThreadLink: { threadId: ThreadId; title: string } | null;
@@ -94,6 +98,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   activeThreadTitle,
   activeThreadLinkOrigin,
+  activeThreadSummary,
   isServerThread,
   activeProject,
   parentThreadLink,
@@ -224,6 +229,7 @@ export const ChatHeader = memo(function ChatHeader({
     canShareWithGuest,
   });
   const titleButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const titleMenuTimerRef = useRef<number | null>(null);
   const cancelPendingTitleMenu = () => {
     if (titleMenuTimerRef.current === null) return;
@@ -247,6 +253,8 @@ export const ChatHeader = memo(function ChatHeader({
     openMenu({ x: rect.left, y: rect.bottom + 4 });
   };
   const openMenuFromTitle = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    // The menu opens under the title, where the summary card sits.
+    setSummaryOpen(false);
     if (isTrailingDoubleClick(event.detail)) return;
     const clickedChevron =
       (event.target as HTMLElement).closest("[data-thread-title-chevron]") !== null;
@@ -297,6 +305,30 @@ export const ChatHeader = memo(function ChatHeader({
       setRenaming(null);
     }
   };
+  const threadTitleButton = (
+    <button
+      ref={titleButtonRef}
+      type="button"
+      aria-label={`Thread actions for ${activeThreadTitle}`}
+      aria-haspopup="menu"
+      onClick={openMenuFromTitle}
+      onDoubleClick={canOperateThread ? handleTitleDoubleClick : undefined}
+      onBlur={cancelPendingTitleMenu}
+      className="group/thread-title inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-sm text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+    />
+  );
+  const threadTitleButtonContent = (
+    <>
+      <h2 className="min-w-0" dir={textDirection(activeThreadTitle)}>
+        <WorkspaceBreadcrumbText>{activeThreadTitle}</WorkspaceBreadcrumbText>
+      </h2>
+      <ChevronDownIcon
+        aria-hidden
+        data-thread-title-chevron
+        className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/thread-title:opacity-100 group-focus-visible/thread-title:opacity-100"
+      />
+    </>
+  );
   return (
     <div
       ref={breadcrumbContainerRef}
@@ -399,31 +431,18 @@ export const ChatHeader = memo(function ChatHeader({
               onFocus={(event) => event.currentTarget.select()}
               onKeyDown={handleRenameKeyDown}
             />
+          ) : isServerThread && activeThreadSummary !== null ? (
+            <PreviewCard open={summaryOpen} onOpenChange={setSummaryOpen}>
+              <PreviewCardTrigger delay={350} closeDelay={120} render={threadTitleButton}>
+                {threadTitleButtonContent}
+              </PreviewCardTrigger>
+              <PreviewCardPopup side="bottom" className="w-96 max-w-[calc(100vw-2rem)]">
+                <ThreadSummaryCard title={activeThreadTitle} summary={activeThreadSummary} />
+              </PreviewCardPopup>
+            </PreviewCard>
           ) : isServerThread ? (
             <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    ref={titleButtonRef}
-                    type="button"
-                    aria-label={`Thread actions for ${activeThreadTitle}`}
-                    aria-haspopup="menu"
-                    onClick={openMenuFromTitle}
-                    onDoubleClick={canOperateThread ? handleTitleDoubleClick : undefined}
-                    onBlur={cancelPendingTitleMenu}
-                    className="group/thread-title inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-sm text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                  />
-                }
-              >
-                <h2 className="min-w-0" dir={textDirection(activeThreadTitle)}>
-                  <WorkspaceBreadcrumbText>{activeThreadTitle}</WorkspaceBreadcrumbText>
-                </h2>
-                <ChevronDownIcon
-                  aria-hidden
-                  data-thread-title-chevron
-                  className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/thread-title:opacity-100 group-focus-visible/thread-title:opacity-100"
-                />
-              </TooltipTrigger>
+              <TooltipTrigger render={threadTitleButton}>{threadTitleButtonContent}</TooltipTrigger>
               <TooltipPopup side="top">{activeThreadTitle}</TooltipPopup>
             </Tooltip>
           ) : (
@@ -458,3 +477,47 @@ export const ChatHeader = memo(function ChatHeader({
     </div>
   );
 });
+
+function ThreadSummaryCard({
+  title,
+  summary,
+}: {
+  title: string;
+  summary: OrchestrationV2ThreadSummary;
+}) {
+  return (
+    <div className="flex flex-col gap-3 p-3 text-sm">
+      <p className="font-medium text-foreground" dir={textDirection(title)}>
+        {title}
+      </p>
+      <ThreadSummarySection label="What this chat is about">
+        <p dir="auto">{summary.about}</p>
+      </ThreadSummarySection>
+      <ThreadSummarySection label="Verdict">
+        <p dir="auto">{summary.verdict}</p>
+      </ThreadSummarySection>
+      <ThreadSummarySection label="Still open">
+        {summary.stillOpen.length === 0 ? (
+          <p className="text-muted-foreground">Nothing open.</p>
+        ) : (
+          <ul className="list-disc space-y-0.5 ps-4">
+            {summary.stillOpen.map((item) => (
+              <li key={item} dir="auto">
+                {item}
+              </li>
+            ))}
+          </ul>
+        )}
+      </ThreadSummarySection>
+    </div>
+  );
+}
+
+function ThreadSummarySection({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-0.5">
+      <h3 className="text-xs font-medium text-muted-foreground">{label}</h3>
+      {children}
+    </section>
+  );
+}

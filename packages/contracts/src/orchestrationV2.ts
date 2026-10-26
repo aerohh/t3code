@@ -447,6 +447,16 @@ const LenientThreadOpens = Schema.NullOr(OrchestrationV2ThreadOpens).pipe(
 export const ThreadTagName = TrimmedNonEmptyString.check(Schema.isMaxLength(40));
 export type ThreadTagName = typeof ThreadTagName.Type;
 
+/** The agent's own note on where its chat stands, shown when hovering the chat title. */
+export const OrchestrationV2ThreadSummary = Schema.Struct({
+  about: TrimmedNonEmptyString.check(Schema.isMaxLength(600)),
+  verdict: TrimmedNonEmptyString.check(Schema.isMaxLength(400)),
+  stillOpen: Schema.Array(TrimmedNonEmptyString.check(Schema.isMaxLength(200))).check(
+    Schema.isMaxLength(6),
+  ),
+});
+export type OrchestrationV2ThreadSummary = typeof OrchestrationV2ThreadSummary.Type;
+
 export const OrchestrationV2AppThread = Schema.Struct({
   ...OrchestrationV2CreationFields,
   id: ThreadId,
@@ -496,6 +506,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   tag: Schema.optional(Schema.NullOr(ThreadTagName)),
+  summary: Schema.optional(Schema.NullOr(OrchestrationV2ThreadSummary)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   lastVisitedAt: Schema.NullOr(Schema.DateTimeUtc).pipe(
@@ -1864,6 +1875,7 @@ export const OrchestrationV2DomainEvent = Schema.Union([
       "thread.pinned",
       "thread.auto-settle-set",
       "thread.tag-set",
+      "thread.summary-set",
       "thread.unpinned",
       "thread.pin-reordered",
       "thread.active-reordered",
@@ -2754,6 +2766,7 @@ export const OrchestrationV2DomainEventJson = Schema.Union([
       "thread.pinned",
       "thread.auto-settle-set",
       "thread.tag-set",
+      "thread.summary-set",
       "thread.unpinned",
       "thread.pin-reordered",
       "thread.active-reordered",
@@ -3551,6 +3564,13 @@ const OrchestrationV2InternalCommand = Schema.Union([
         notification: OrchestrationV2Notification,
       }),
     ),
+  }),
+  /** Internal: only the chat's agent writes its summary, through the MCP thread tool. */
+  Schema.Struct({
+    type: Schema.Literal("thread.summary.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    summary: OrchestrationV2ThreadSummary,
   }),
 ]);
 export type OrchestrationV2InternalCommand = typeof OrchestrationV2InternalCommand.Type;

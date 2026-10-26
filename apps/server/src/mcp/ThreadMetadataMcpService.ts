@@ -2,7 +2,7 @@ import {
   CommandId,
   OrchestratorMcpFailure,
   type OrchestrationV2AppThread,
-  type OrchestrationV2Command,
+  type OrchestrationV2ServerCommand,
   type ThreadMetadataMcpAction,
   type ThreadMetadataMcpUpdateInput,
   type ThreadMetadataMcpUpdateResult,
@@ -63,7 +63,10 @@ function metadataCommand(input: {
   readonly commandId: CommandId;
   readonly threadId: ThreadId;
   readonly update: ThreadMetadataMcpUpdateInput;
-}): Extract<OrchestrationV2Command, { readonly type: "thread.metadata.update" }> {
+}): Extract<
+  OrchestrationV2ServerCommand,
+  { readonly type: "thread.metadata.update" | "thread.summary.set" }
+> {
   switch (input.update.action) {
     case "rename":
       return {
@@ -78,6 +81,13 @@ function metadataCommand(input: {
         commandId: input.commandId,
         threadId: input.threadId,
         regenerateTitle: true,
+      };
+    case "update_summary":
+      return {
+        type: "thread.summary.set",
+        commandId: input.commandId,
+        threadId: input.threadId,
+        summary: input.update.summary!,
       };
   }
 }
@@ -171,11 +181,14 @@ const make = Effect.gen(function* () {
         ),
       );
     const metadataEvent = dispatched.storedEvents.find(
-      (stored) => stored.event.type === "thread.metadata-updated",
+      (stored) =>
+        stored.event.type === "thread.metadata-updated" ||
+        stored.event.type === "thread.summary-set",
     );
     // Retries may find stored events compacted away; answer from the projection.
     const thread =
-      metadataEvent?.event.type === "thread.metadata-updated"
+      metadataEvent?.event.type === "thread.metadata-updated" ||
+      metadataEvent?.event.type === "thread.summary-set"
         ? metadataEvent.event.payload
         : yield* threadManagement
             .getThreadShell(threadId)

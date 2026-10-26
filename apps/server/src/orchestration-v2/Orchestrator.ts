@@ -483,6 +483,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.unsnooze":
     case "thread.auto-settle.set":
     case "thread.tag.set":
+    case "thread.summary.set":
     case "thread.pin":
     case "thread.unpin":
     case "thread.pin.reorder":
@@ -2844,6 +2845,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.unsnooze"
           | "thread.auto-settle.set"
           | "thread.tag.set"
+          | "thread.summary.set"
           | "thread.pin"
           | "thread.unpin"
           | "thread.pin.reorder"
@@ -3348,6 +3350,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         case "thread.tag.set":
           // Not activity: a newer updatedAt would wake a snoozed thread on clients.
           return { ...thread, tag: command.tag, updatedAt: thread.updatedAt };
+        case "thread.summary.set":
+          // Not activity, for the same reason as a tag.
+          return { ...thread, summary: command.summary, updatedAt: thread.updatedAt };
         case "thread.pin": {
           const alreadyPinned = thread.pinnedAt != null;
           const promotes = thread.settledOverride === "settled" || thread.snoozedUntil != null;
@@ -3744,6 +3749,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return "thread.auto-settle-set" as const;
         case "thread.tag.set":
           return "thread.tag-set" as const;
+        case "thread.summary.set":
+          return "thread.summary-set" as const;
         case "thread.pin":
           return "thread.pinned" as const;
         case "thread.unpin":
@@ -12700,6 +12707,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.unsnooze":
       case "thread.auto-settle.set":
       case "thread.tag.set":
+      case "thread.summary.set":
       case "thread.pin":
       case "thread.unpin":
       case "thread.pin.reorder":

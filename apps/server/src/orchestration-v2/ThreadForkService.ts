@@ -132,6 +132,8 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
           threadId: input.sourceProjection.thread.id,
           runId: input.sourceRun.id,
         },
+        // A fork can start from an earlier turn, where the source's summary is not true yet.
+        summary: null,
         createdAt: input.createdAt,
         updatedAt: input.createdAt,
         archivedAt: null,
