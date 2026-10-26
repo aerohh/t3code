@@ -188,6 +188,7 @@ import * as RuntimeLayer from "./orchestration-v2/runtimeLayer.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
 import * as MessageBookmarks from "./orchestration-v2/MessageBookmarks.ts";
+import * as ScreenGallery from "./orchestration-v2/ScreenGallery.ts";
 import * as ThreadSettlementService from "./orchestration-v2/ThreadSettlementService.ts";
 import * as IdleCompactionService from "./orchestration-v2/IdleCompactionService.ts";
 import * as ThreadPullRequestService from "./orchestration-v2/ThreadPullRequestService.ts";
@@ -630,6 +631,13 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
           ProjectStore.layer,
           TextGeneration.layer.pipe(Layer.provide(layerSourceControlProviderRegistry)),
         ),
+      ),
+    ),
+  ),
+  Layer.provideMerge(
+    ScreenGallery.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(ProjectionStoreV2.layer, ProjectStore.layer, GitVcsDriver.layer),
       ),
     ),
   ),

@@ -38,7 +38,6 @@ import {
   WorkspaceBreadcrumbText,
 } from "../WorkspaceBreadcrumb";
 import { observeResize } from "~/lib/observeResize";
-import { cn } from "~/lib/utils";
 import { textDirection } from "~/textDirection";
 import { useClientSettings } from "../../hooks/useSettings";
 import { GuestShareIndicator } from "./GuestShareControls";
@@ -56,6 +55,7 @@ interface ChatHeaderProps {
   /** The side chat toggle sits in the same cluster, so the title leaves room for it too. */
   sideChatControlShown?: boolean;
   bookmarksControlShown?: boolean;
+  galleryControlShown?: boolean;
   onNewThreadInProject: () => void;
   onOpenProjectSettings?: (() => void) | undefined;
 }
@@ -75,28 +75,18 @@ const TITLE_MENU_OPEN_DELAY_MS = 500;
 
 // Room for the titlebar controls pinned over the header's right edge. The side chat and
 // bookmarks buttons each add one control (2.25rem with its gap) to the cluster.
+/** In Tailwind spacing units: the fixed controls plus each optional button that is showing. */
 function reservedTitlebarControlsPadding(input: {
   rightPanelOpen: boolean;
   rightPane: boolean;
   sideChat: boolean;
   bookmarks: boolean;
-}): string {
-  if (input.rightPanelOpen) {
-    if (input.sideChat && input.bookmarks) return "pr-29";
-    if (input.sideChat) return "pr-20";
-    if (input.bookmarks) return "pr-19";
-    return "pr-10";
-  }
-  if (input.rightPane) {
-    if (input.sideChat && input.bookmarks) return "pr-51";
-    if (input.sideChat) return "pr-42";
-    if (input.bookmarks) return "pr-41";
-    return "pr-32";
-  }
-  if (input.sideChat && input.bookmarks) return "pr-43";
-  if (input.sideChat) return "pr-34";
-  if (input.bookmarks) return "pr-33";
-  return "pr-24";
+  gallery: boolean;
+}): number {
+  const fixedControls = input.rightPanelOpen ? 10 : input.rightPane ? 32 : 24;
+  return (
+    fixedControls + (input.sideChat ? 10 : 0) + (input.bookmarks ? 9 : 0) + (input.gallery ? 9 : 0)
+  );
 }
 
 export const ChatHeader = memo(function ChatHeader({
@@ -111,6 +101,7 @@ export const ChatHeader = memo(function ChatHeader({
   rightPanelOpen,
   sideChatControlShown = false,
   bookmarksControlShown = false,
+  galleryControlShown = false,
   onNewThreadInProject,
   onOpenProjectSettings,
 }: ChatHeaderProps) {
@@ -309,15 +300,16 @@ export const ChatHeader = memo(function ChatHeader({
   return (
     <div
       ref={breadcrumbContainerRef}
-      className={cn(
-        "flex min-w-0 flex-1 items-center gap-2 sm:gap-3",
-        reservedTitlebarControlsPadding({
+      className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3"
+      style={{
+        paddingRight: `calc(var(--spacing) * ${reservedTitlebarControlsPadding({
           rightPanelOpen,
           rightPane: paneSide === "right",
           sideChat: sideChatControlShown,
           bookmarks: bookmarksControlShown,
-        }),
-      )}
+          gallery: galleryControlShown,
+        })})`,
+      }}
       onContextMenu={handleHeaderContextMenu}
     >
       <WorkspaceBreadcrumb

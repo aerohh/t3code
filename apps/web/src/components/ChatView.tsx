@@ -1208,6 +1208,7 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadRef,
     isServerThread && serverConfig?.messageBookmarks === true,
   );
+  const screenGalleryShown = isServerThread && serverConfig?.screenGallery === true;
   const canStartOrShowSideChat =
     !inSideChatCard &&
     serverThread !== null &&
@@ -3233,6 +3234,7 @@ export default function ChatView(props: ChatViewProps) {
   ) : null;
   const panelToggleControlProps = {
     bookmarksThread: messageBookmarksShown ? activeThreadRef : null,
+    galleryThread: screenGalleryShown ? activeThreadRef : null,
     terminalAvailable: activeProject !== null,
     terminalOpen: terminalUiState.terminalOpen,
     terminalShortcutLabel: shortcutLabelForCommand(keybindings, "terminal.toggle"),
@@ -3318,14 +3320,15 @@ export default function ChatView(props: ChatViewProps) {
             {isElectron && rightPanelControlsAtRoot ? (
               <span
                 aria-hidden
-                className={cn(
-                  "pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] [-webkit-app-region:no-drag]",
-                  canStartOrShowSideChat && messageBookmarksShown
-                    ? "w-46"
-                    : canStartOrShowSideChat || messageBookmarksShown
-                      ? "w-37"
-                      : "w-28",
-                )}
+                className="pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] [-webkit-app-region:no-drag]"
+                style={{
+                  width: `calc(var(--spacing) * ${
+                    28 +
+                    (canStartOrShowSideChat ? 9 : 0) +
+                    (messageBookmarksShown ? 9 : 0) +
+                    (screenGalleryShown ? 9 : 0)
+                  })`,
+                }}
               />
             ) : null}
             {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
@@ -3342,6 +3345,7 @@ export default function ChatView(props: ChatViewProps) {
               rightPanelOpen={inlineRightPanelOwnsTitleBar}
               sideChatControlShown={canStartOrShowSideChat}
               bookmarksControlShown={messageBookmarksShown}
+              galleryControlShown={screenGalleryShown}
               onNewThreadInProject={handleNewThreadInActiveProjectStable}
               {...(activeDraftLogicalProjectKey
                 ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }

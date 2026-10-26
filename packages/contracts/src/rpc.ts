@@ -403,6 +403,7 @@ import {
   MessageBookmarkTarget,
   MessageBookmarkRenameInput,
 } from "./messageBookmarks.ts";
+import { ScreenGallery, ScreenGalleryError, ScreenGalleryInput } from "./screenGallery.ts";
 
 export const WS_METHODS = {
   messageBookmarksSubscribe: "messageBookmarks.subscribe",
@@ -410,6 +411,7 @@ export const WS_METHODS = {
   messageBookmarksAdd: "messageBookmarks.add",
   messageBookmarksRename: "messageBookmarks.rename",
   messageBookmarksRemove: "messageBookmarks.remove",
+  screenGalleryGet: "screenGallery.get",
   projectsList: "projects.list",
   projectsAdd: "projects.add",
   projectsRemove: "projects.remove",
@@ -1762,6 +1764,11 @@ const WsMessageBookmarksRemoveRpc = Rpc.make(WS_METHODS.messageBookmarksRemove, 
   success: Schema.Void,
   error: Schema.Union([MessageBookmarkError, EnvironmentAuthorizationError]),
 });
+const WsScreenGalleryGetRpc = Rpc.make(WS_METHODS.screenGalleryGet, {
+  payload: ScreenGalleryInput,
+  success: ScreenGallery,
+  error: Schema.Union([ScreenGalleryError, EnvironmentAuthorizationError]),
+});
 
 const WsOrchestrationV2SearchThreadsRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.searchThreads, {
   payload: OrchestrationV2SearchThreadsInput,
@@ -2028,6 +2035,10 @@ export const MessageBookmarksRpcGroup = RpcGroup.make(
   WsMessageBookmarksRemoveRpc,
 ).middleware(RpcScopeAuthorization);
 
+// Kept apart from the core group for the same type-checking reason as bookmarks; see ws.ts.
+export const ScreenGalleryRpcGroup =
+  RpcGroup.make(WsScreenGalleryGetRpc).middleware(RpcScopeAuthorization);
+
 export const WsCoreRpcGroup = RpcGroup.make(
   WsGuestShareCreateRpc,
   WsServerProbeRpc,
@@ -2241,4 +2252,4 @@ export const WsCoreRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeBackgroundCommandProgressRpc,
 ).middleware(RpcScopeAuthorization);
 
-export const WsRpcGroup = WsCoreRpcGroup.merge(MessageBookmarksRpcGroup);
+export const WsRpcGroup = WsCoreRpcGroup.merge(MessageBookmarksRpcGroup, ScreenGalleryRpcGroup);

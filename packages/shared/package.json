@@ -472,6 +472,10 @@
       "types": "./src/markdownPipeline.ts",
       "import": "./src/markdownPipeline.ts"
     },
+    "./screenGallery": {
+      "types": "./src/screenGallery.ts",
+      "import": "./src/screenGallery.ts"
+    },
     "./threadFindText": {
       "types": "./src/threadFindText.ts",
       "import": "./src/threadFindText.ts"
