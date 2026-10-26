@@ -116,6 +116,26 @@ export function htmlRenderFrameHeight(
   return clampHtmlRenderHeight(Math.min(cap, measuredHeight(heights, width)));
 }
 
+/**
+ * Web and desktop take the frame's cap from the reader's setting, not the
+ * agent's height. Before the live page reports its height, the agent's height
+ * stands in for an unmeasured page.
+ */
+export function htmlRenderReaderFrameHeight(
+  reference: HtmlRenderReference,
+  width: number,
+  readerMaxHeight: number,
+  contentHeight?: number,
+) {
+  const heights = reference.heights;
+  const pageHeight =
+    contentHeight ??
+    (heights === undefined || heights.length === 0
+      ? reference.height
+      : measuredHeight(heights, width));
+  return Math.min(readerMaxHeight, Math.max(HTML_RENDER_MIN_HEIGHT, Math.ceil(pageHeight)));
+}
+
 export function htmlRenderFileName(title: string) {
   const name = title
     .replace(/[\\/:*?"<>|\p{Cc}]+/gu, " ")

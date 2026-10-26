@@ -102,6 +102,16 @@ export const GlassOpacity = Schema.Int.check(
 );
 export type GlassOpacity = typeof GlassOpacity.Type;
 const DEFAULT_GLASS_OPACITY: GlassOpacity = 80;
+export const MIN_HTML_RENDER_MAX_HEIGHT = 200;
+export const MAX_HTML_RENDER_MAX_HEIGHT = 2000;
+export const HtmlRenderMaxHeight = Schema.Int.check(
+  Schema.isBetween({
+    minimum: MIN_HTML_RENDER_MAX_HEIGHT,
+    maximum: MAX_HTML_RENDER_MAX_HEIGHT,
+  }),
+);
+export type HtmlRenderMaxHeight = typeof HtmlRenderMaxHeight.Type;
+const DEFAULT_HTML_RENDER_MAX_HEIGHT: HtmlRenderMaxHeight = 600;
 
 export const MIN_APPEARANCE_CONTRAST = 50;
 export const MAX_APPEARANCE_CONTRAST = 200;
@@ -393,6 +403,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   glassOpacity: GlassOpacity.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_GLASS_OPACITY)),
+  ),
+  htmlRenderMaxHeight: HtmlRenderMaxHeight.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_HTML_RENDER_MAX_HEIGHT)),
   ),
   fontSizeInterface: InterfaceFontSize.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_INTERFACE_FONT_SIZE)),
@@ -1648,6 +1661,7 @@ export const ClientSettingsPatch = Schema.Struct({
   diffLayout: Schema.optionalKey(DiffLayout),
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
   glassOpacity: Schema.optionalKey(GlassOpacity),
+  htmlRenderMaxHeight: Schema.optionalKey(HtmlRenderMaxHeight),
   onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
   fontSizeInterface: Schema.optionalKey(InterfaceFontSize),
   fontSizePrompt: Schema.optionalKey(PromptFontSize),

@@ -7,9 +7,11 @@ import {
   type EnvironmentIdentificationMode,
   MAX_APPEARANCE_CONTRAST,
   MAX_GLASS_OPACITY,
+  MAX_HTML_RENDER_MAX_HEIGHT,
   MAX_PANEL_ANIMATION_DURATION_MS,
   MIN_APPEARANCE_CONTRAST,
   MIN_GLASS_OPACITY,
+  MIN_HTML_RENDER_MAX_HEIGHT,
   MIN_PANEL_ANIMATION_DURATION_MS,
 } from "@t3tools/contracts/settings";
 import {
@@ -104,6 +106,13 @@ export function AppearanceSettingsPanel() {
   const glassOpacitySliderStyle = {
     "--settings-slider-progress": `${glassOpacityRatio * 100}%`,
     "--settings-slider-fill-offset": `${0.5 - glassOpacityRatio}rem`,
+  } as CSSProperties;
+  const htmlRenderMaxHeightRatio =
+    (settings.htmlRenderMaxHeight - MIN_HTML_RENDER_MAX_HEIGHT) /
+    (MAX_HTML_RENDER_MAX_HEIGHT - MIN_HTML_RENDER_MAX_HEIGHT);
+  const htmlRenderMaxHeightSliderStyle = {
+    "--settings-slider-progress": `${htmlRenderMaxHeightRatio * 100}%`,
+    "--settings-slider-fill-offset": `${0.5 - htmlRenderMaxHeightRatio}rem`,
   } as CSSProperties;
   const appearanceContrastRatio =
     (settings.appearanceContrast - MIN_APPEARANCE_CONTRAST) /
@@ -264,6 +273,53 @@ export function AppearanceSettingsPanel() {
                   <SelectItem value="full">Full</SelectItem>
                 </SelectPopup>
               </Select>
+            </div>
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("setting-html-render-max-height")}
+          description="Pages that agents show in the chat stop at this height, and the rest scrolls inside. Shorter pages fit their content."
+          resetAction={
+            settings.htmlRenderMaxHeight !== DEFAULT_UNIFIED_SETTINGS.htmlRenderMaxHeight ? (
+              <SettingResetButton
+                label="page height in chat"
+                onClick={() =>
+                  updateSettings({
+                    htmlRenderMaxHeight: DEFAULT_UNIFIED_SETTINGS.htmlRenderMaxHeight,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <div className="flex w-full items-center gap-3 sm:w-52">
+              <output
+                className="min-w-14 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
+                htmlFor="html-render-max-height"
+              >
+                {settings.htmlRenderMaxHeight}px
+              </output>
+              <input
+                aria-label="Page height in chat"
+                className="settings-slider min-w-0 flex-1"
+                id="html-render-max-height"
+                max={MAX_HTML_RENDER_MAX_HEIGHT}
+                min={MIN_HTML_RENDER_MAX_HEIGHT}
+                onChange={(event) => {
+                  const htmlRenderMaxHeight = Number(event.currentTarget.value);
+                  if (
+                    Number.isInteger(htmlRenderMaxHeight) &&
+                    htmlRenderMaxHeight >= MIN_HTML_RENDER_MAX_HEIGHT &&
+                    htmlRenderMaxHeight <= MAX_HTML_RENDER_MAX_HEIGHT
+                  ) {
+                    updateSettings({ htmlRenderMaxHeight });
+                  }
+                }}
+                step={50}
+                style={htmlRenderMaxHeightSliderStyle}
+                type="range"
+                value={settings.htmlRenderMaxHeight}
+              />
             </div>
           }
         />

@@ -316,6 +316,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["wide full width column layout messages composer monitor"],
   },
   {
+    // Prefixed because the slider control already owns the `html-render-max-height` id.
+    id: "setting-html-render-max-height",
+    title: "Page height in chat",
+    to: "/settings/appearance",
+    searchTerms: ["inline html render frame tall scroll pages charts"],
+  },
+  {
     id: "math-rendering",
     title: "Render math",
     to: "/settings/appearance",
