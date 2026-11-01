@@ -17,6 +17,7 @@ import {
   CHAT_MARKDOWN_REMARK_PLUGINS,
   CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS,
   CHAT_MARKDOWN_REHYPE_PLUGINS,
+  rehypeFoldImageRuns,
 } from "@t3tools/shared/markdownPipeline";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -199,6 +200,7 @@ import {
   ChatMarkdownAssetImage,
   ChatMarkdownImage,
   ChatMarkdownImageFallback,
+  ChatMarkdownImageFold,
   ChatMarkdownVideo,
   MarkdownLinkContext,
   markdownImageCopy,
@@ -248,6 +250,8 @@ interface ChatMarkdownProps {
       `cwd`'s; without it a private repository's uploads load unauthenticated and 404. */
   sourceControlMedia?: boolean | undefined;
   headingLevelOffset?: number | undefined;
+  /** Folds each run of back-to-back images into a closed bar. */
+  foldImages?: boolean | undefined;
 }
 
 export interface ChatMarkdownContextReference {
@@ -394,6 +398,11 @@ const CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS = [
   rehypeHeadingIds,
   rehypeTextDirection,
   rehypeChipPunctuation,
+] satisfies NonNullable<ReactMarkdownOptions["rehypePlugins"]>;
+
+const CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS_WITH_IMAGE_FOLDS = [
+  ...CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS,
+  rehypeFoldImageRuns,
 ] satisfies NonNullable<ReactMarkdownOptions["rehypePlugins"]>;
 
 const CHAT_MARKDOWN_LITERAL_HTML_REHYPE_PLUGINS = [
@@ -964,6 +973,24 @@ function selectInlineCode(event: ReactMouseEvent<HTMLElement>) {
   window.getSelection()?.selectAllChildren(event.currentTarget);
 }
 
+function imageFoldImages(node: ReactMarkdownExtraProps["node"]) {
+  const images: Array<{ alt: string; title: string | undefined }> = [];
+  const visit = (child: NonNullable<ReactMarkdownExtraProps["node"]>["children"][number]) => {
+    if (child.type !== "element") return;
+    if (child.tagName === "img") {
+      const { alt, dataMarkdownTitle } = child.properties;
+      images.push({
+        alt: typeof alt === "string" ? alt : "",
+        title: typeof dataMarkdownTitle === "string" ? dataMarkdownTitle : undefined,
+      });
+      return;
+    }
+    child.children.forEach(visit);
+  };
+  node?.children.forEach(visit);
+  return images;
+}
+
 const CHAT_MARKDOWN_COMPONENTS = {
   h1: markdownHeadingRenderer(1),
   h2: markdownHeadingRenderer(2),
@@ -977,6 +1004,11 @@ const CHAT_MARKDOWN_COMPONENTS = {
     if (artifactTemplate) {
       return (
         <CodexArtifactTemplateCard template={artifactTemplate} onUse={onUseArtifactTemplate} />
+      );
+    }
+    if (node?.properties?.dataImageFold === true) {
+      return (
+        <ChatMarkdownImageFold images={imageFoldImages(node)}>{children}</ChatMarkdownImageFold>
       );
     }
     return <div {...props}>{children}</div>;
@@ -1722,6 +1754,7 @@ function ChatMarkdown({
   lineBreaks = false,
   parseRawHtml = true,
   extraRemarkPlugins = EMPTY_REMARK_PLUGINS,
+  foldImages = false,
   ...props
 }: ChatMarkdownProps) {
   const { componentState, handleCopy, markdownRef, localMediaPreview, closeLocalMediaPreview } =
@@ -1780,9 +1813,11 @@ function ChatMarkdown({
             text={source}
             remarkPlugins={remarkPlugins}
             rehypePlugins={
-              parseRawHtml
-                ? CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS
-                : CHAT_MARKDOWN_LITERAL_HTML_REHYPE_PLUGINS
+              !parseRawHtml
+                ? CHAT_MARKDOWN_LITERAL_HTML_REHYPE_PLUGINS
+                : foldImages
+                  ? CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS_WITH_IMAGE_FOLDS
+                  : CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS
             }
             shared={!uncachedPlugins}
             // Every block before the last is finished, so its parse can be reused.
