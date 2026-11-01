@@ -1,9 +1,11 @@
 import {
   isOrchestrationV2WorkActive,
+  type OrchestrationV2BackgroundCommandProgressFrame,
   OrchestrationV2CommandOutputError,
   type OrchestrationV2CommandOutputFrame,
   type OrchestrationV2SubscribeCommandOutputInput,
   type OrchestrationV2TurnItem,
+  type ThreadId,
 } from "@t3tools/contracts";
 import {
   appendTerminalOutput,
@@ -23,6 +25,13 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
+import {
+  type BackgroundCommandProgressState,
+  EMPTY_BACKGROUND_COMMAND_PROGRESS,
+  newestOutputLine,
+  presentBackgroundCommandProgress,
+  updateBackgroundCommandProgress,
+} from "./backgroundCommandProgress.ts";
 import * as EventSink from "./EventSink.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 
@@ -38,6 +47,8 @@ const COMMAND_OUTPUT_MAX_APPEND_CHARS = 16 * 1024;
 const MAX_LIVE_COMMANDS = 64;
 /** Retain finished tails for settlements that omit output. */
 const MAX_FINISHED_COMMANDS = 16;
+/** Fastest a background command's progress is sent; it only feeds a one-line strip. */
+const BACKGROUND_COMMAND_FRAME_INTERVAL_MS = 1_000;
 const MAX_FINAL_SOURCE_CHARS = TERMINAL_OUTPUT_TAIL_CHARS * 4;
 
 interface Subscriber {
@@ -50,6 +61,11 @@ interface Subscriber {
 
 export type CommandOutputTarget = OrchestrationV2SubscribeCommandOutputInput;
 
+export interface BackgroundCommandTarget {
+  readonly threadId: ThreadId;
+  readonly taskId: string;
+}
+
 export interface CommandOutputHubShape {
   readonly append: (input: CommandOutputTarget & { readonly chunk: string }) => Effect.Effect<void>;
   /** Retains the tail briefly for settlements without output; otherwise rows use persisted output. */
@@ -57,6 +73,14 @@ export interface CommandOutputHubShape {
   readonly subscribe: (
     input: CommandOutputTarget,
   ) => Stream.Stream<OrchestrationV2CommandOutputFrame, OrchestrationV2CommandOutputError>;
+  /** Add raw output for a command the agent left running in the background. */
+  readonly appendBackgroundCommand: (
+    input: BackgroundCommandTarget & { readonly chunk: string },
+  ) => Effect.Effect<void>;
+  /** One background command's progress, for as long as the client listens. */
+  readonly subscribeBackgroundCommand: (
+    input: BackgroundCommandTarget,
+  ) => Stream.Stream<OrchestrationV2BackgroundCommandProgressFrame>;
 }
 
 export class CommandOutputHub extends Context.Service<CommandOutputHub, CommandOutputHubShape>()(
@@ -67,6 +91,21 @@ const isCommandOutputError = Schema.is(OrchestrationV2CommandOutputError);
 
 function commandKey(target: CommandOutputTarget): string {
   return `${target.threadId}\u0000${target.itemId}`;
+}
+
+function backgroundCommandKey(target: BackgroundCommandTarget): string {
+  return `${target.threadId}\u0000${target.taskId}`;
+}
+
+function sameProgressFrame(
+  left: OrchestrationV2BackgroundCommandProgressFrame,
+  right: OrchestrationV2BackgroundCommandProgressFrame,
+): boolean {
+  return (
+    left.line === right.line &&
+    left.percent === right.percent &&
+    left.secondsLeft === right.secondsLeft
+  );
 }
 
 const decodeLegacyClaudeBashResult = Schema.decodeUnknownOption(
@@ -309,7 +348,92 @@ export const make = Effect.gen(function* () {
       ),
     );
 
-  return CommandOutputHub.of({ append, finish, subscribe });
+  // A background command's chat row settles as soon as it is backgrounded, so its
+  // output is keyed by task instead, and clients get only its newest line and progress.
+  // Entries are not removed when the command ends: the client stops listening once
+  // the task leaves the thread's background work, and the count bound reclaims them.
+  const backgroundCommands = new Map<
+    string,
+    { readonly tail: TerminalOutputState; readonly progress: BackgroundCommandProgressState }
+  >();
+  const backgroundWakes = new Map<string, Set<Queue.Queue<void>>>();
+
+  // Untraced: this runs for every output chunk, which would flood traces with spans.
+  const appendBackgroundCommand: CommandOutputHubShape["appendBackgroundCommand"] =
+    Effect.fnUntraced(function* ({ chunk, ...target }) {
+      if (chunk.length === 0) return;
+      const key = backgroundCommandKey(target);
+      const now = yield* Clock.currentTimeMillis;
+      const previous = backgroundCommands.get(key);
+      const tail = appendTerminalOutput(previous?.tail ?? EMPTY_TERMINAL_OUTPUT, chunk);
+      const progress = updateBackgroundCommandProgress(
+        previous?.progress ?? EMPTY_BACKGROUND_COMMAND_PROGRESS,
+        newestOutputLine(tail.text),
+        now,
+      );
+      setBounded(backgroundCommands, key, { tail, progress }, MAX_LIVE_COMMANDS);
+      if (progress === previous?.progress) return;
+      yield* Effect.forEach(
+        backgroundWakes.get(key) ?? [],
+        (wake) => Queue.offer(wake, undefined),
+        {
+          discard: true,
+        },
+      );
+    });
+
+  const subscribeBackgroundCommand: CommandOutputHubShape["subscribeBackgroundCommand"] = (
+    target,
+  ) =>
+    Stream.unwrap(
+      Effect.gen(function* () {
+        const key = backgroundCommandKey(target);
+        const wake = yield* Queue.sliding<void>(1);
+        const keyWakes = backgroundWakes.get(key) ?? new Set<Queue.Queue<void>>();
+        keyWakes.add(wake);
+        backgroundWakes.set(key, keyWakes);
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            keyWakes.delete(wake);
+            if (keyWakes.size === 0 && backgroundWakes.get(key) === keyWakes) {
+              backgroundWakes.delete(key);
+            }
+          }),
+        );
+        yield* Queue.offer(wake, undefined);
+
+        let lastFrameAt: number | undefined;
+        let lastFrame: OrchestrationV2BackgroundCommandProgressFrame | undefined;
+        const nextFrame = Effect.gen(function* () {
+          while (true) {
+            yield* Queue.take(wake);
+            if (lastFrameAt !== undefined) {
+              const sinceLastFrame = (yield* Clock.currentTimeMillis) - lastFrameAt;
+              if (sinceLastFrame < BACKGROUND_COMMAND_FRAME_INTERVAL_MS) {
+                yield* Effect.sleep(BACKGROUND_COMMAND_FRAME_INTERVAL_MS - sinceLastFrame);
+              }
+            }
+            const now = yield* Clock.currentTimeMillis;
+            const entry = backgroundCommands.get(key);
+            if (entry === undefined) continue;
+            const frame = presentBackgroundCommandProgress(entry.progress, now);
+            if (lastFrame !== undefined && sameProgressFrame(frame, lastFrame)) continue;
+            lastFrameAt = now;
+            lastFrame = frame;
+            return frame;
+          }
+        });
+        return Stream.fromEffectRepeat(nextFrame);
+      }),
+    );
+
+  return CommandOutputHub.of({
+    append,
+    finish,
+    subscribe,
+    appendBackgroundCommand,
+    subscribeBackgroundCommand,
+  });
 });
 
 export const layer: Layer.Layer<

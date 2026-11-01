@@ -3027,6 +3027,13 @@ function claudeNativeToolOutputFromStructuredResult(input: {
   };
 }
 
+function claudeBackgroundTaskIdFromToolOutput(output: ClaudeNativeToolOutput): string | undefined {
+  if (output.type !== "structured_tool_use_result") return undefined;
+  if (typeof output.value !== "object" || output.value === null) return undefined;
+  const taskId = Reflect.get(output.value, "backgroundTaskId");
+  return typeof taskId === "string" && taskId.length > 0 ? taskId : undefined;
+}
+
 function claudeNativeToolOutputValue(output: ClaudeNativeToolOutput): unknown | undefined {
   switch (output.type) {
     case "none":
@@ -4730,6 +4737,19 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               Effect.asVoid,
             );
           });
+        // Bash commands left running in the background, by task id. Their output
+        // file is read for progress until Claude reports the task ended.
+        const backgroundOutputTails = new Map<
+          string,
+          { readonly fiber: Fiber.Fiber<void>; readonly stop: Deferred.Deferred<void> }
+        >();
+        const stopBackgroundOutputTail = (taskId: string) =>
+          Effect.suspend(() => {
+            const tail = backgroundOutputTails.get(taskId);
+            if (tail === undefined) return Effect.void;
+            backgroundOutputTails.delete(taskId);
+            return Deferred.succeed(tail.stop, undefined).pipe(Effect.asVoid);
+          });
         const sdkMessageLock = yield* Semaphore.make(1);
         // Members can finish after the launching turn; retain state to emit each transition once.
         const workflowMemberStates = yield* Ref.make(
@@ -5039,6 +5059,35 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               updatedAt: yield* DateTime.now,
             },
           });
+        });
+
+        const startBackgroundOutputTail = Effect.fnUntraced(function* (input: {
+          readonly taskOutputRoot: string | undefined;
+          readonly taskId: string;
+          readonly threadId: ThreadId;
+          readonly sessionId: string;
+        }) {
+          if (input.taskOutputRoot === undefined || backgroundOutputTails.has(input.taskId)) return;
+          const stop = yield* Deferred.make<void>();
+          const fiber = yield* tailClaudeTaskOutput({
+            root: input.taskOutputRoot,
+            sessionId: input.sessionId,
+            taskId: input.taskId,
+            stop,
+            onChunk: (chunk) =>
+              emitProviderEvent({
+                type: "background_command_output.delta",
+                driver: CLAUDE_PROVIDER,
+                threadId: input.threadId,
+                taskId: input.taskId,
+                chunk,
+              }),
+          }).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(Path.Path, path),
+            Effect.forkIn(sessionScope),
+          );
+          backgroundOutputTails.set(input.taskId, { fiber, stop });
         });
 
         // Usage without input is a placeholder, not a context measurement.
@@ -7011,6 +7060,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           readonly toolResult: ClaudeToolResultContentBlock;
           readonly output: ClaudeNativeToolOutput;
           readonly completedAt: DateTime.Utc;
+          readonly taskOutputRoot: string | undefined;
         }) {
           const { toolCall } = input;
           const toolNonExecutionKind = claudeToolNonExecutionKind(
@@ -7018,6 +7068,23 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             input.toolResult.tool_use_id,
           );
           yield* stopTaskOutputTail(toolCall.nativeItemId);
+          // The result of a Bash call Claude moved to the background, whether asked to
+          // or after it hit its timeout, names the task that keeps writing its output.
+          const backgroundTaskId = claudeBackgroundTaskIdFromToolOutput(input.output);
+          if (
+            input.context !== null &&
+            backgroundTaskId !== undefined &&
+            toolCall.classification.itemType === "command_execution"
+          ) {
+            yield* startBackgroundOutputTail({
+              taskOutputRoot: input.taskOutputRoot,
+              taskId: backgroundTaskId,
+              threadId: toolCall.threadId,
+              sessionId:
+                (input.message.type === "user" ? input.message.session_id : undefined) ??
+                input.context.nativeThreadId,
+            });
+          }
           yield* emitToolCallArtifacts(
             buildToolCallArtifacts({
               context: input.context,
@@ -7130,6 +7197,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               toolResult,
               output,
               completedAt: at,
+              taskOutputRoot: undefined,
             });
           }
           if (line.type !== "assistant") return false;
@@ -8099,6 +8167,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             );
             rosterChanged = true;
           } else if (message.type === "system" && message.subtype === "task_notification") {
+            yield* stopBackgroundOutputTail(message.task_id);
             yield* endClaudeMonitorTasks((taskId) => taskId === message.task_id);
             const removed = yield* clearPendingBackgroundTask(
               input.nativeThreadId,
@@ -9167,6 +9236,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               toolResult,
               output,
               completedAt: yield* DateTime.now,
+              taskOutputRoot: liveQuery.taskOutputRoot,
             });
             // Subagents write to the session's shared task store, so their
             // task tools update the parent turn's list. Failed or never-run

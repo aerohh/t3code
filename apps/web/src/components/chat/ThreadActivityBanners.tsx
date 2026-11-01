@@ -1,10 +1,12 @@
 import type {
+  EnvironmentId,
   OrchestrationV2PendingBackgroundTask,
   OrchestrationV2ProviderGoal,
   ThreadId,
 } from "@t3tools/contracts";
 import type { EnvironmentThreadShell, ThreadStructure } from "@t3tools/client-runtime/state/shell";
 import {
+  formatBackgroundCommandProgress,
   presentPendingBackgroundWork,
   presentProviderGoal,
   type RunStopPresentation,
@@ -25,6 +27,9 @@ import {
 import { Fragment } from "react";
 import { tickTextContent } from "~/lib/tickTextContent";
 import { cn } from "~/lib/utils";
+import { useServerConfigs } from "../../state/entities";
+import { orchestrationEnvironment } from "../../state/orchestration";
+import { useEnvironmentQuery } from "../../state/query";
 import { Button, InlineButton } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { ComposerBannerStackItem } from "./ComposerBannerStack";
@@ -148,8 +153,47 @@ export function runStopNowItem(input: {
   };
 }
 
+interface BackgroundCommandRef {
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
+  readonly taskId: string;
+}
+
+/** Subscribes only while mounted, so a strip off screen receives nothing. */
+function useBackgroundCommandProgress(command: BackgroundCommandRef) {
+  const supported =
+    useServerConfigs().get(command.environmentId)?.environment.capabilities
+      .backgroundCommandProgress === true;
+  return useEnvironmentQuery(
+    supported
+      ? orchestrationEnvironment.v2.backgroundCommandProgress({
+          environmentId: command.environmentId,
+          input: { threadId: command.threadId, taskId: command.taskId },
+        })
+      : null,
+  ).data;
+}
+
+function BackgroundCommandPercent(props: BackgroundCommandRef) {
+  const progress = useBackgroundCommandProgress(props);
+  if (progress === null || progress.percent === null) return null;
+  return <span className="ms-1 tabular-nums">{`${progress.percent}%`}</span>;
+}
+
+/** Without a percent, the newest line is what shows the command is still moving. */
+function BackgroundCommandActivity(props: BackgroundCommandRef) {
+  const progress = useBackgroundCommandProgress(props);
+  if (progress === null) return null;
+  if (progress.percent !== null) {
+    return <span className="tabular-nums">{formatBackgroundCommandProgress(progress)}</span>;
+  }
+  if (progress.line === null) return null;
+  return <span className="max-w-64 truncate font-mono">{progress.line}</span>;
+}
+
 /** Background commands and subagents, for the end of the timeline. */
 export function backgroundWorkNowItem(input: {
+  readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
   readonly tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
   readonly turnItems: ThreadStructure["turnItems"];
@@ -161,6 +205,11 @@ export function backgroundWorkNowItem(input: {
   const { onOpenThread } = input;
   const presentation = presentPendingBackgroundWork(input.tasks);
   if (presentation === null) return null;
+  const commandRef = (taskId: string): BackgroundCommandRef => ({
+    environmentId: input.environmentId,
+    threadId: input.threadId,
+    taskId,
+  });
   const rows = presentation.items.map((task) => {
     // Same key derivePendingBackgroundWork gives turn-item tasks; subagent items carry progress.
     const item = input.turnItems.findLast(
@@ -183,6 +232,7 @@ export function backgroundWorkNowItem(input: {
   const verb = presentation.waiting ? "Waiting on" : "Running";
   const onlyThreadId = only?.childThreadId;
   const startedAtMs = only?.startedAtMs ?? null;
+  const onlyCommand = only?.task.kind === "command" ? commandRef(only.task.taskId) : null;
   return {
     id: `background-work:${input.threadId}`,
     icon: rows.every(isCommand) ? <TerminalIcon /> : <CircleDashedIcon />,
@@ -204,10 +254,18 @@ export function backgroundWorkNowItem(input: {
       only.activity
     ) : newest ? (
       `${newest.task.label}: ${newest.activity}`
-    ) : rows.every(isCommand) ? (
-      <span className="font-mono">{rows.map((row) => row.task.label).join(", ")}</span>
     ) : (
-      rows.map((row) => row.task.label).join(", ")
+      <span className={cn(rows.every(isCommand) && "font-mono")}>
+        {rows.map((row, index) => (
+          <Fragment key={row.task.taskId}>
+            {index > 0 ? ", " : null}
+            {row.task.label}
+            {row.task.kind === "command" ? (
+              <BackgroundCommandPercent {...commandRef(row.task.taskId)} />
+            ) : null}
+          </Fragment>
+        ))}
+      </span>
     ),
     actions: (
       <>
@@ -225,6 +283,7 @@ export function backgroundWorkNowItem(input: {
             Open
           </InlineButton>
         )}
+        {onlyCommand === null ? null : <BackgroundCommandActivity {...onlyCommand} />}
         <InlineButton disabled={input.stopDisabled} onClick={() => void input.onStop()}>
           {input.stopping ? "Stopping..." : "Stop"}
         </InlineButton>
