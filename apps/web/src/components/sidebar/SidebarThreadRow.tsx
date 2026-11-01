@@ -442,6 +442,34 @@ export const draftPenClassName = "size-3 shrink-0 text-warning-foreground";
 // useSortable memoizes on its `disabled` object, so a fresh one per render
 // re-renders every row and marker on each sidebar update.
 export const SIDEBAR_SORTABLE_DRAG_DISABLED = { draggable: true } as const;
+
+// The box is drawn in slices (header, then one per row), so each slice clips its shadow
+// where it meets a neighbour and uses an opaque fill to read as one card. The fill repeats
+// the sidebar's colour and grain because any other surface reads as a hole in dark themes;
+// the brighter top edge lifts the box where a dark shadow can't show.
+export function sidebarTagBoxSurfaceClassName(slice: "top" | "middle" | "bottom" | "whole") {
+  const hasTopEdge = slice === "top" || slice === "whole";
+  return cn(
+    "border-sidebar-foreground/8 bg-sidebar surface-grain shadow-lg dark:shadow-black/60",
+    hasTopEdge && "border-t-sidebar-foreground/16 dark:inset-shadow-2xs dark:inset-shadow-white/7",
+    slice === "top" && "[clip-path:inset(-24px_-24px_0_-24px)]",
+    slice === "middle" && "[clip-path:inset(0_-24px)]",
+    slice === "bottom" && "[clip-path:inset(0_-24px_-24px_-24px)]",
+  );
+}
+
+// Each part of a tag box draws its own slice of the box. Parts below the
+// header pull up over the list's 1px gap (-mt-px, padded back down) so the
+// box has no seams; createSidebarSortingStrategy accounts for the overlap.
+export function sidebarTagBoxPartClassName(part: "middle" | "last", variant: "card" | "slim") {
+  return cn(
+    "-mt-px mx-0.5 border-x px-1",
+    sidebarTagBoxSurfaceClassName(part === "last" ? "bottom" : "middle"),
+    variant === "card" ? "pt-0.75 pb-0.5" : "pt-px",
+    // The bottom margin is mirrored by SIDEBAR_TAG_BOX_BOTTOM_GAP_PX in the drag preview.
+    part === "last" && "mb-3 rounded-b-lg border-b pb-1",
+  );
+}
 const SIDEBAR_SORTABLE_DRAG_ENABLED = { draggable: false } as const;
 
 // Takes the row's props rather than a render function: a closure from the
@@ -545,6 +573,11 @@ type SidebarThreadRowProps = {
   snoozeSupported: boolean;
   pinningSupported: boolean;
   isPinned: boolean;
+  /** The thread's tag, shown quietly on the branch line. Null or omitted hides it,
+      for rows where the tag is already obvious from where the row sits. */
+  tagLabel?: string | null | undefined;
+  /** Set on rows drawn inside a tag box: which slice of the box they draw. */
+  tagBoxPart?: "middle" | "last" | undefined;
   sortable?: SortableThreadRowBag | undefined;
   dropVerb: SidebarDropVerb | null;
   dragOverPinned: boolean;
@@ -1145,7 +1178,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     !showsScratchMachine &&
     prBadge === null &&
     diff === null &&
-    runningTerminalIds.length === 0;
+    runningTerminalIds.length === 0 &&
+    !props.tagLabel;
   const metaLine = metaLineEmpty ? null : (
     <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
       {thread.branch ? (
@@ -1167,6 +1201,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       ) : (
         <span className="flex-1" />
       )}
+      {props.tagLabel ? (
+        // Capped at half the line so a long tag never hides the branch
+        // entirely; it truncates before the provider icons give way. A
+        // translucent tint reads on every row surface (hover, active).
+        <span className="min-w-0 max-w-1/2 truncate rounded-sm bg-sidebar-foreground/8 px-1 text-sidebar-muted-foreground">
+          {props.tagLabel}
+        </span>
+      ) : null}
       {terminalStatusIcon}
       {prBadge}
       {diff ? (
@@ -1216,6 +1258,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         className={cn(
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_36px]",
           metaLine !== null && multiline && "[contain-intrinsic-size:auto_54px]",
+          props.tagBoxPart && sidebarTagBoxPartClassName(props.tagBoxPart, "slim"),
           sortable?.isDragging && "relative z-20",
         )}
       >
@@ -1411,8 +1454,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       {...sortableRootProps}
       {...(fileDropHandlers ?? {})}
       className={cn(
-        "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
+        "list-none [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
         metaLineEmpty && "[contain-intrinsic-size:auto_58px]",
+        props.tagBoxPart ? sidebarTagBoxPartClassName(props.tagBoxPart, "card") : "py-0.5",
         sortable?.isDragging && "relative z-20",
       )}
     >
