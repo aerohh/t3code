@@ -128,20 +128,22 @@ export function ComposerControlsBar(props: {
     modelPickerIconClassName,
     getModelDisabledReason,
   } = props;
-  const restingBlockDefs = planModeUiEnabled
-    ? [
-        {
-          id: "mode",
-          content: (
-            <ComposerInteractionModeToggle
-              interactionMode={interactionMode}
-              size={composerControlsCollapsed ? "xs" : "sm"}
-              onToggleInteractionMode={toggleInteractionMode}
-            />
-          ),
-        },
-      ]
-    : [];
+  // A side chat's permission mode is fixed, so plan mode would do nothing there.
+  const restingBlockDefs =
+    planModeUiEnabled && !inSideChatCard
+      ? [
+          {
+            id: "mode",
+            content: (
+              <ComposerInteractionModeToggle
+                interactionMode={interactionMode}
+                size={composerControlsCollapsed ? "xs" : "sm"}
+                onToggleInteractionMode={toggleInteractionMode}
+              />
+            ),
+          },
+        ]
+      : [];
   const hiddenRestingBlockIds = restingBlockDefs
     .slice(restingBlockDefs.length - restingHiddenBlockCount)
     .map((def) => def.id);
@@ -256,8 +258,6 @@ export function ComposerControlsBar(props: {
       <CircleAlertIcon className="size-4" />
       {providerSetupInstanceId ? "Open provider settings" : "No provider available"}
     </ComposerControl>
-  ) : inSideChatCard ? (
-    composerModelPicker
   ) : (
     <>
       {showLeadingSeparator ? (

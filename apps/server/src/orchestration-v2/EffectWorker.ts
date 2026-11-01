@@ -580,7 +580,9 @@ export const layerExecutor: Layer.Layer<
                   : threads.dispatch({
                       type: "thread.delete",
                       // Derived from the effect's command, so a retry deletes nothing twice.
-                      commandId: CommandId.make(`${effect.commandId}:delete-side-chat`),
+                      commandId: CommandId.make(
+                        `${effect.commandId}:delete-side-chat:${sideChatThreadId}`,
+                      ),
                       threadId: sideChatThreadId,
                     }),
               ),

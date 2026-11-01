@@ -27,6 +27,7 @@ beforeEach(() => {
     threadPanelVisibilityByThreadKey: {},
     userActionRevisionByThreadKey: {},
     closeRevisionByThreadKey: {},
+    sideChatTabByThreadKey: {},
   });
 });
 

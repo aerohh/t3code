@@ -66,6 +66,8 @@ import {
   type ProviderSessionId,
   RunId,
   RuntimeMode,
+  SIDE_CHAT_DEFAULT_TITLE,
+  SIDE_CHAT_LIMIT,
   ThreadLinkedPullRequest,
   ThreadId,
   TurnItemId,
@@ -579,6 +581,18 @@ const decodeUserInputAnswers = Schema.decodeUnknownEffect(
     ]),
   ),
 );
+
+const SIDE_CHAT_TITLE_MAX_LENGTH = 60;
+
+// Side chats skip title generation: they start with the parent's messages, and a model call
+// per throwaway question costs more than the first words are worth as a tab name.
+function sideChatTitleFromQuestion(text: string): string | null {
+  const words = text.trim().split(/\s+/).join(" ");
+  if (words.length === 0) return null;
+  return words.length <= SIDE_CHAT_TITLE_MAX_LENGTH
+    ? words
+    : `${words.slice(0, SIDE_CHAT_TITLE_MAX_LENGTH).trimEnd()}…`;
+}
 
 function pendingThreadTitleGenerationEffect(
   commandId: CommandId,
@@ -4402,15 +4416,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (parentAdapter.driver !== "claudeAgent") {
         return yield* refuse("Side chats are only available in Claude threads.");
       }
-      const existingSideChatId = yield* projectionStore
-        .getSideChatThreadId(parent.id)
+      const existingSideChatIds = yield* projectionStore
+        .getSideChatThreadIds(parent.id)
         .pipe(
           Effect.mapError(
             (cause) => new OrchestratorProjectionError({ threadId: parent.id, cause }),
           ),
         );
-      if (existingSideChatId !== null) {
-        return yield* refuse(`Thread ${parent.id} already has side chat ${existingSideChatId}.`);
+      if (existingSideChatIds.length >= SIDE_CHAT_LIMIT) {
+        return yield* refuse(`Thread ${parent.id} already has ${SIDE_CHAT_LIMIT} side chats.`);
       }
       // The latest finished reply, so a side chat can open while the parent is still working.
       const sourceRun = parentProjection.runs
@@ -4439,7 +4453,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           canonicalSourcePoint: contextSourcePointForRun(parentProjection, sourceRun),
           transferId,
           targetThreadId: command.sideChatThreadId,
-          title: "Side chat",
+          title: SIDE_CHAT_DEFAULT_TITLE,
           createdBy: command.createdBy,
           creationSource: command.creationSource,
           createdAt: now,
@@ -4468,22 +4482,22 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   // runs if the server stops right after the parent's change commits.
   const sideChatDeletionEffect = Effect.fn("orchestrationV2.sideChatDeletionEffect")(
     function* (command: { readonly commandId: CommandId; readonly threadId: ThreadId }) {
-      const sideChatThreadId = yield* projectionStore
-        .getSideChatThreadId(command.threadId)
+      const sideChatThreadIds = yield* projectionStore
+        .getSideChatThreadIds(command.threadId)
         .pipe(
           Effect.mapError(
             (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
           ),
         );
-      if (sideChatThreadId === null) return [];
-      return [
-        {
-          id: `effect:${command.commandId}:side-chat.delete`,
-          commandId: command.commandId,
-          threadId: command.threadId,
-          request: { type: "side-chat.delete", sideChatThreadId },
-        } satisfies PendingOrchestrationEffectV2,
-      ];
+      return sideChatThreadIds.map(
+        (sideChatThreadId) =>
+          ({
+            id: `effect:${command.commandId}:side-chat.delete:${sideChatThreadId}`,
+            commandId: command.commandId,
+            threadId: command.threadId,
+            request: { type: "side-chat.delete", sideChatThreadId },
+          }) satisfies PendingOrchestrationEffectV2,
+      );
     },
   );
 
@@ -5591,6 +5605,27 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           messageId: command.messageId,
         }),
       ]);
+      projection = yield* getProjectionWithPendingEvents(command.threadId, events);
+    }
+    const sideChatTitle =
+      projection.thread.sideChat !== undefined &&
+      projection.thread.title === SIDE_CHAT_DEFAULT_TITLE &&
+      command.createdBy === "user" &&
+      !isNativeMaintenanceCommand(command)
+        ? sideChatTitleFromQuestion(command.text)
+        : null;
+    if (sideChatTitle !== null) {
+      const now = yield* DateTime.now;
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId: command.threadId,
+        providerInstanceId: projection.thread.providerInstanceId,
+        occurredAt: now,
+        payload: { ...projection.thread, title: sideChatTitle, updatedAt: now },
+      });
       projection = yield* getProjectionWithPendingEvents(command.threadId, events);
     }
     const modelSelection = command.modelSelection ?? projection.thread.modelSelection;

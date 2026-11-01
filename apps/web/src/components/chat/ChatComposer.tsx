@@ -512,6 +512,9 @@ export interface ChatComposerProps {
   handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
   /** The side chat's box: no access or plan controls, which a side chat ignores. */
   inSideChatCard?: boolean;
+  /** Offers `/side` and `/btw`; the reason, when set, says why they cannot start one now. */
+  sideChatAvailable?: boolean;
+  sideChatDisabledReason?: string | null;
 
   focusComposer: () => void;
   scheduleComposerFocus: () => void;
@@ -1174,6 +1177,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     pullRequestRepository,
     threadPullRequests,
     planModeUiEnabled,
+    sideChatAvailable: props.sideChatAvailable === true,
+    sideChatDisabledReason: props.sideChatDisabledReason ?? null,
     compactSlashCommandAvailable,
     selectedProvider,
     selectedProviderSkills,
@@ -1935,6 +1940,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }
         return;
       }
+      if (item.command === "side" || item.command === "btw") {
+        if (props.sideChatDisabledReason) return;
+        const applied = applyPromptReplacement(
+          trigger.rangeStart,
+          trigger.rangeEnd,
+          `/${item.command} `,
+          { expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd) },
+        );
+        if (applied) setComposerHighlightedItemId(null);
+        return;
+      }
       if (!planModeUiEnabled) return;
       void handleInteractionModeChange(item.command === "plan" ? "plan" : "default");
       const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
@@ -2360,7 +2376,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Answers, plan follow-ups, approvals and errors need the wider footer row,
   // and the phone layouts are their own design.
   const isComposerSlim =
-    !inSideChatCard &&
     !isComposerResting &&
     !isComposerCollapsedMobile &&
     !isMobileViewport &&

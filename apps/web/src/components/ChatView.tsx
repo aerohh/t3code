@@ -68,6 +68,7 @@ import {
   ProviderInteractionMode,
   resolveIdleCompaction,
   RuntimeMode,
+  SIDE_CHAT_LIMIT,
 } from "@t3tools/contracts";
 import {
   deriveProviderSubagentStatus,
@@ -1236,18 +1237,40 @@ export default function ChatView(props: ChatViewProps) {
       ({ item }) => item.type === "user_message" && item.attachments.length > 0,
     ),
   );
+  const serverThreadIsClaude =
+    serverThread !== null &&
+    providerStatuses.some(
+      (provider) =>
+        provider.instanceId === serverThread.providerInstanceId &&
+        provider.driver === "claudeAgent",
+    );
   const canStartOrShowSideChat =
     !inSideChatCard &&
     serverThread !== null &&
     serverThread.sideChat === undefined &&
     serverThread.archivedAt === null &&
     serverThread.settledOverride !== "settled" &&
-    (canOperateThread || sideChatCard.sideChatThreadId !== null) &&
-    providerStatuses.some(
-      (provider) =>
-        provider.instanceId === serverThread.providerInstanceId &&
-        provider.driver === "claudeAgent",
-    );
+    (canOperateThread || sideChatCard.sideChats.length > 0) &&
+    serverThreadIsClaude;
+  // `/side` and `/btw` show in a Claude main chat's slash menu; typed anywhere else, the reason says why.
+  const sideChatCommandOffered =
+    !inSideChatCard && serverThread?.sideChat === undefined && serverThreadIsClaude;
+  const sideChatCommandDisabledReason =
+    inSideChatCard || serverThread?.sideChat !== undefined
+      ? "A side chat can't start its own side chat."
+      : serverThread === null
+        ? "Side chats start after the first message."
+        : !serverThreadIsClaude
+          ? "Side chats only work in Claude chats."
+          : serverThread.archivedAt !== null || serverThread.settledOverride === "settled"
+            ? "Side chats aren't available in settled or archived chats."
+            : !canOperateThread
+              ? "This connection can't start side chats."
+              : sideChatCard.sideChats.length >= SIDE_CHAT_LIMIT
+                ? `This chat already has ${SIDE_CHAT_LIMIT} side chats. Close one to start another.`
+                : !sideChatCard.canStartAnother
+                  ? "A side chat is already starting."
+                  : null;
   const selectedProviderByThreadId = composerActiveProvider ?? null;
   const threadProvider =
     activeThread?.modelSelection.instanceId ??
@@ -2980,6 +3003,8 @@ export default function ChatView(props: ChatViewProps) {
     anchorNewTurn,
     acknowledgeActiveThreadWoke,
     handleInteractionModeChange,
+    onSideChat: sideChatCommandOffered ? sideChatCard.startWithQuestion : undefined,
+    sideChatDisabledReason: sideChatCommandDisabledReason,
     handleNewThreadInActiveProject,
     persistThreadSettingsForNextTurn,
   });
@@ -3765,6 +3790,8 @@ export default function ChatView(props: ChatViewProps) {
                               toggleInteractionMode={toggleInteractionModeStable}
                               handleRuntimeModeChange={handleRuntimeModeChangeStable}
                               inSideChatCard={inSideChatCard}
+                              sideChatAvailable={sideChatCommandOffered}
+                              sideChatDisabledReason={sideChatCommandDisabledReason}
                               handleInteractionModeChange={handleInteractionModeChangeStable}
                               focusComposer={focusComposerStable}
                               scheduleComposerFocus={scheduleComposerFocusStable}
@@ -3874,19 +3901,22 @@ export default function ChatView(props: ChatViewProps) {
                         activePendingUserInput !== null ||
                         activeThreadShell?.hasPendingUserInput === true
                       }
-                      sideChatRef={
-                        sideChatCard.sideChatThreadId === null
-                          ? null
-                          : scopeThreadRef(environmentId, sideChatCard.sideChatThreadId)
+                      environmentId={environmentId}
+                      sideChats={sideChatCard.sideChats}
+                      selectedSideChatThreadId={sideChatCard.selectedSideChatThreadId}
+                      canStartAnother={sideChatCard.canStartAnother}
+                      onSelectTab={sideChatCard.selectTab}
+                      onDeleteTab={(sideChatThreadId) =>
+                        void sideChatCard.deleteTab(sideChatThreadId)
                       }
+                      onStartAnother={() => void sideChatCard.startAnother()}
                       onClose={sideChatCard.close}
-                      onStartFresh={() => void sideChatCard.startFresh()}
                     >
-                      {sideChatCard.sideChatThreadId === null ? null : (
+                      {sideChatCard.selectedSideChatThreadId === null ? null : (
                         <ChatView
-                          key={sideChatCard.sideChatThreadId}
+                          key={sideChatCard.selectedSideChatThreadId}
                           environmentId={environmentId}
-                          threadId={sideChatCard.sideChatThreadId}
+                          threadId={sideChatCard.selectedSideChatThreadId}
                           routeKind="server"
                           inSideChatCard
                         />

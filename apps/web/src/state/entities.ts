@@ -10,6 +10,7 @@ import type {
 import {
   EMPTY_THREAD_HISTORY_META,
   type EnvironmentThreadStatus,
+  type SideChatThread,
   type ThreadHistoryMeta,
 } from "@t3tools/client-runtime/state/threads";
 import {
@@ -154,15 +155,17 @@ export function useChildThreadInputs(ref: ScopedThreadRef | null) {
   );
 }
 
-const EMPTY_SIDE_CHAT_THREAD_ID_ATOM = Atom.make<ThreadId | null>(null).pipe(
-  Atom.withLabel("web-side-chat-thread-id:empty"),
+const EMPTY_SIDE_CHAT_THREADS_ATOM = Atom.make<ReadonlyArray<SideChatThread>>([]).pipe(
+  Atom.withLabel("web-side-chat-threads:empty"),
 );
 
-export function useSideChatThreadId(parentRef: ScopedThreadRef | null): ThreadId | null {
+export function useSideChatThreads(
+  parentRef: ScopedThreadRef | null,
+): ReadonlyArray<SideChatThread> {
   return useAtomValue(
     parentRef === null
-      ? EMPTY_SIDE_CHAT_THREAD_ID_ATOM
-      : environmentThreadShells.sideChatThreadIdAtom(parentRef),
+      ? EMPTY_SIDE_CHAT_THREADS_ATOM
+      : environmentThreadShells.sideChatThreadsAtom(parentRef),
   );
 }
 

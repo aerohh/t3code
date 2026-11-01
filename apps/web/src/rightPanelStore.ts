@@ -107,6 +107,8 @@ interface RightPanelStoreState {
   threadPanelVisibilityByThreadKey: Record<string, ThreadPanelVisibility>;
   userActionRevisionByThreadKey: Record<string, number>;
   closeRevisionByThreadKey: Record<string, number>;
+  /** The side chat tab last chosen in each parent's card. Kept in memory only. */
+  sideChatTabByThreadKey: Record<string, ThreadId>;
   getUserActionRevision: (ref: ScopedThreadRef) => number;
   markUserAction: (ref: ScopedThreadRef) => number;
   /** Refused if the user chose a panel after expectedUserActionRevision was read. */
@@ -184,6 +186,7 @@ interface RightPanelStoreState {
   setThreadPanelOpen: (ref: ScopedThreadRef, open: boolean) => void;
   toggleThreadPanel: (ref: ScopedThreadRef) => void;
   setSideChatCardOpen: (ref: ScopedThreadRef, open: boolean) => void;
+  setSideChatTab: (ref: ScopedThreadRef, sideChatThreadId: ThreadId) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
 
@@ -547,6 +550,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
       threadPanelVisibilityByThreadKey: {},
       userActionRevisionByThreadKey: {},
       closeRevisionByThreadKey: {},
+      sideChatTabByThreadKey: {},
       getUserActionRevision: (ref) =>
         get().userActionRevisionByThreadKey[scopedThreadKey(ref)] ?? 0,
       markUserAction: (ref) => {
@@ -1045,6 +1049,13 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             },
           ),
         })),
+      setSideChatTab: (ref, sideChatThreadId) =>
+        set((state) => ({
+          sideChatTabByThreadKey: {
+            ...state.sideChatTabByThreadKey,
+            [scopedThreadKey(ref)]: sideChatThreadId,
+          },
+        })),
       removeThread: (ref) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -1052,7 +1063,8 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             !(threadKey in state.byThreadKey) &&
             !(threadKey in state.threadPanelVisibilityByThreadKey) &&
             !(threadKey in state.userActionRevisionByThreadKey) &&
-            !(threadKey in state.closeRevisionByThreadKey)
+            !(threadKey in state.closeRevisionByThreadKey) &&
+            !(threadKey in state.sideChatTabByThreadKey)
           ) {
             return state;
           }
@@ -1063,11 +1075,14 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             state.userActionRevisionByThreadKey;
           const { [threadKey]: _closeRevision, ...closeRevisionByThreadKey } =
             state.closeRevisionByThreadKey;
+          const { [threadKey]: _sideChatTab, ...sideChatTabByThreadKey } =
+            state.sideChatTabByThreadKey;
           return {
             byThreadKey,
             threadPanelVisibilityByThreadKey,
             userActionRevisionByThreadKey,
             closeRevisionByThreadKey,
+            sideChatTabByThreadKey,
           };
         }),
     }),

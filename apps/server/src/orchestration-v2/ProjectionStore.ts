@@ -540,10 +540,10 @@ export interface ProjectionStoreV2Shape {
     ReadonlyArray<{ readonly parentThreadId: ThreadId; readonly taskId: NodeId }>,
     ProjectionStoreV2Error
   >;
-  /** The parent's side chat that is not deleted yet, or null. */
-  readonly getSideChatThreadId: (
+  /** The parent's side chats that are not deleted yet. */
+  readonly getSideChatThreadIds: (
     parentThreadId: ThreadId,
-  ) => Effect.Effect<ThreadId | null, ProjectionStoreV2Error>;
+  ) => Effect.Effect<ReadonlyArray<ThreadId>, ProjectionStoreV2Error>;
   readonly getTurnStartContext: (
     threadId: ThreadId,
     runId: RunId,
@@ -6493,16 +6493,15 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
       );
 
-    const getSideChatThreadId: ProjectionStoreV2Shape["getSideChatThreadId"] = (parentThreadId) =>
+    const getSideChatThreadIds: ProjectionStoreV2Shape["getSideChatThreadIds"] = (parentThreadId) =>
       sql<{ readonly thread_id: string }>`
         SELECT thread_id
         FROM orchestration_v2_projection_threads
         WHERE deleted_at IS NULL
           AND json_extract(payload_json, '$.lineage.parentThreadId') = ${parentThreadId}
           AND json_extract(payload_json, '$.sideChat') IS NOT NULL
-        LIMIT 1
       `.pipe(
-        Effect.map((rows) => (rows[0] === undefined ? null : ThreadId.make(rows[0].thread_id))),
+        Effect.map((rows) => rows.map((row) => ThreadId.make(row.thread_id))),
         Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
       );
 
@@ -7087,7 +7086,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getThreadsWithPullRequests: readOnReader(getThreadsWithPullRequests),
       getThreadWorktreePaths: readOnReader(getThreadWorktreePaths),
       getOpenRemoteDelegatedTasks: getOpenRemoteDelegatedTasks.pipe(NodeSqliteClient.readOnly),
-      getSideChatThreadId: readOnReader(getSideChatThreadId),
+      getSideChatThreadIds: readOnReader(getSideChatThreadIds),
       getThreadProjection,
       getTurnStartContext: readOnReader(getTurnStartContext),
       getTurnStartHistory: readOnReader(getTurnStartHistory),

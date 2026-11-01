@@ -608,6 +608,11 @@ export function idleCompactionOf(
     : undefined;
 }
 
+/** A parent chat keeps at most this many side chats; each one runs its own provider session. */
+export const SIDE_CHAT_LIMIT = 3;
+/** A side chat keeps this title until its first question names it. */
+export const SIDE_CHAT_DEFAULT_TITLE = "Side chat";
+
 /** A side chat stays out of every thread list; only its parent's card opens it. */
 export function isSideChatThread(thread: {
   readonly sideChat?: OrchestrationV2SideChat | undefined;

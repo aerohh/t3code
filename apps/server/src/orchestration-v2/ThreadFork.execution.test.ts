@@ -980,6 +980,38 @@ const createSideChatParent = (
       createdBy: "user",
       creationSource: "web",
     });
+    const providerThreadId = ProviderThreadId.make("side-chat-parent-provider-thread");
+    yield* eventSink.write({
+      events: [
+        {
+          id: EventId.make("side-chat-parent-provider-thread"),
+          type: "provider-thread.updated",
+          threadId: sideChatParentThreadId,
+          occurredAt: now,
+          payload: {
+            id: providerThreadId,
+            driver: ProviderDriverKind.make("claudeAgent"),
+            providerInstanceId: instanceId,
+            providerSessionId: null,
+            appThreadId: sideChatParentThreadId,
+            ownerNodeId: null,
+            nativeThreadRef: {
+              driver: ProviderDriverKind.make("claudeAgent"),
+              nativeId: "native-side-chat-parent",
+              strength: "strong",
+            },
+            nativeConversationHeadRef: null,
+            status: "idle",
+            firstRunOrdinal: 1,
+            lastRunOrdinal: runStatuses.length,
+            handoffIds: [],
+            forkedFrom: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+      ],
+    });
     for (const [index, status] of runStatuses.entries()) {
       const ordinal = index + 1;
       const runId = RunId.make(`side-chat-parent-run-${ordinal}`);
@@ -997,7 +1029,7 @@ const createSideChatParent = (
               ordinal,
               providerInstanceId: instanceId,
               modelSelection,
-              providerThreadId: null,
+              providerThreadId,
               userMessageId: MessageId.make(`side-chat-parent-message-${ordinal}`),
               rootNodeId: null,
               activeAttemptId: null,
@@ -1057,16 +1089,44 @@ it.effect("opens a side chat from the latest finished run while the parent still
   }).pipe(Effect.provide(layer));
 });
 
-it.effect("keeps one side chat per parent", () => {
+it.effect("keeps at most three side chats per parent", () => {
   const { instanceId, layer } = sideChatLayerFor("claudeAgent");
   return Effect.gen(function* () {
     const orchestrator = yield* createSideChatParent(instanceId, ["completed"]);
     yield* openSideChat(orchestrator);
+    yield* openSideChat(orchestrator, ThreadId.make("second-side-chat"));
+    yield* openSideChat(orchestrator, ThreadId.make("third-side-chat"));
 
-    const error = yield* openSideChat(orchestrator, ThreadId.make("second-side-chat")).pipe(
+    const error = yield* openSideChat(orchestrator, ThreadId.make("fourth-side-chat")).pipe(
       Effect.flip,
     );
-    assert.include(String("cause" in error ? error.cause : error), "already has side chat");
+    assert.include(String("cause" in error ? error.cause : error), "already has 3 side chats");
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("names a side chat after its first question", () => {
+  const { instanceId, layer } = sideChatLayerFor("claudeAgent");
+  return Effect.gen(function* () {
+    const orchestrator = yield* createSideChatParent(instanceId, ["completed"]);
+    yield* openSideChat(orchestrator);
+    const ask = (id: string, text: string) =>
+      orchestrator.dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make(id),
+        threadId: sideChatThreadId,
+        messageId: MessageId.make(`message:${id}`),
+        text,
+        attachments: [],
+        dispatchMode: { type: "start_immediately" },
+        createdBy: "user",
+        creationSource: "web",
+      });
+
+    yield* ask("first-question", "  why does the\n  build   fail on CI?  ");
+    yield* ask("second-question", "and what about lint?");
+
+    const sideChat = (yield* orchestrator.getThreadProjection(sideChatThreadId)).thread;
+    assert.equal(sideChat.title, "why does the build fail on CI?");
   }).pipe(Effect.provide(layer));
 });
 
@@ -1104,12 +1164,14 @@ it.effect("keeps a side chat on its provider instance", () => {
   }).pipe(Effect.provide(layer));
 });
 
-it.effect("deletes the side chat once its parent settles", () => {
+it.effect("deletes every side chat once its parent settles", () => {
   const { instanceId, layer } = sideChatLayerFor("claudeAgent");
   return Effect.gen(function* () {
     const orchestrator = yield* createSideChatParent(instanceId, ["completed"]);
     const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+    const secondSideChatThreadId = ThreadId.make("second-side-chat");
     yield* openSideChat(orchestrator);
+    yield* openSideChat(orchestrator, secondSideChatThreadId);
 
     yield* orchestrator.dispatch({
       type: "thread.settle",
@@ -1118,8 +1180,10 @@ it.effect("deletes the side chat once its parent settles", () => {
     });
     yield* worker.drain();
 
-    const sideChat = (yield* orchestrator.getThreadProjection(sideChatThreadId)).thread;
-    assert.isNotNull(sideChat.deletedAt);
+    for (const threadId of [sideChatThreadId, secondSideChatThreadId]) {
+      const sideChat = (yield* orchestrator.getThreadProjection(threadId)).thread;
+      assert.isNotNull(sideChat.deletedAt);
+    }
     const parent = (yield* orchestrator.getThreadProjection(sideChatParentThreadId)).thread;
     assert.isNull(parent.deletedAt);
   }).pipe(Effect.provide(layer));
