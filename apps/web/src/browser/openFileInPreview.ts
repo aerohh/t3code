@@ -24,11 +24,7 @@ import {
   setActivePreviewTab,
   updatePreviewServerSnapshot,
 } from "~/previewStateStore";
-import {
-  rightPanelHostRef,
-  selectSelectedRightPanelSurface,
-  useRightPanelStore,
-} from "~/rightPanelStore";
+import { selectSelectedRightPanelSurface, useRightPanelStore } from "~/rightPanelStore";
 
 import { resolveBrowserDefaults } from "./browserDefaults";
 
@@ -61,25 +57,23 @@ export async function openUrlInPreview<E>(input: {
   readonly profileId?: PreviewOpenInput["profileId"];
   readonly background?: boolean;
 }): Promise<AtomCommandResult<void, E | BrowserSettingsReadError>> {
-  // Read before any await: a side chat pane that unmounts meanwhile drops its host mapping.
-  const threadRef = rightPanelHostRef(input.threadRef);
   const defaults = await resolveBrowserDefaults().catch(
     (cause: unknown) => new BrowserSettingsReadError({ cause }),
   );
   if (defaults instanceof BrowserSettingsReadError) {
     return AsyncResult.failure(Cause.fail(defaults));
   }
-  const runtime = previewRuntimeFor(threadRef.environmentId);
-  const previousActiveTabId = readThreadPreviewState(threadRef).activeTabId;
+  const runtime = previewRuntimeFor(input.threadRef.environmentId);
+  const previousActiveTabId = readThreadPreviewState(input.threadRef).activeTabId;
   // The server changes the active tab, not panel selection; selection changes come from the user.
   const selectedSurface = () =>
-    selectSelectedRightPanelSurface(useRightPanelStore.getState().byThreadKey, threadRef)?.id ??
-    null;
+    selectSelectedRightPanelSurface(useRightPanelStore.getState().byThreadKey, input.threadRef)
+      ?.id ?? null;
   const surfaceBeforeOpen = selectedSurface();
   const result = await input.openPreview({
-    environmentId: threadRef.environmentId,
+    environmentId: input.threadRef.environmentId,
     input: {
-      threadId: threadRef.threadId,
+      threadId: input.threadRef.threadId,
       url: input.url,
       viewport: defaults.viewport,
       profileId: input.profileId ?? defaults.profileId,
@@ -87,21 +81,21 @@ export async function openUrlInPreview<E>(input: {
     },
   });
   return mapAtomCommandResult(result, (snapshot) => {
-    rememberPreviewUrl(threadRef, input.url);
+    rememberPreviewUrl(input.threadRef, input.url);
     if (input.background) {
-      updatePreviewServerSnapshot(threadRef, snapshot);
+      updatePreviewServerSnapshot(input.threadRef, snapshot);
       // Restore focus unless the user picked a tab while opening this one.
       if (
         previousActiveTabId &&
-        readThreadPreviewState(threadRef).activeTabId === snapshot.tabId &&
+        readThreadPreviewState(input.threadRef).activeTabId === snapshot.tabId &&
         selectedSurface() === surfaceBeforeOpen
       ) {
-        setActivePreviewTab(threadRef, previousActiveTabId);
+        setActivePreviewTab(input.threadRef, previousActiveTabId);
       }
       return;
     }
-    applyPreviewServerSnapshot(threadRef, snapshot);
-    useRightPanelStore.getState().openBrowser(threadRef, snapshot.tabId);
+    applyPreviewServerSnapshot(input.threadRef, snapshot);
+    useRightPanelStore.getState().openBrowser(input.threadRef, snapshot.tabId);
   });
 }
 
@@ -130,7 +124,6 @@ export async function openFileInPreview<AssetError, PreviewError>(input: {
       ),
     );
   }
-  const hostRef = rightPanelHostRef(input.threadRef);
   const insideWorkspace =
     mediaFileReference(input.filePath, input.workspaceRoot).relativePath !== undefined;
   const assetResult = await input.createAssetUrl({
@@ -153,7 +146,7 @@ export async function openFileInPreview<AssetError, PreviewError>(input: {
     );
   }
   return openUrlInPreview({
-    threadRef: hostRef,
+    threadRef: input.threadRef,
     url: assetUrl,
     openPreview: input.openPreview,
   });

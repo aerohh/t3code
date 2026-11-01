@@ -518,7 +518,7 @@ export const make = Effect.gen(function* () {
       !isListedThreadLineage(threadShell.lineage) &&
       !(yield* Ref.get(publishedStateByThreadRef)).has(threadId)
     ) {
-      // Subagents and side chats have no relay rows to clear; per-event tombstones would needlessly redeliver user aggregates.
+      // Subagents have no relay rows to clear; per-event tombstones would needlessly redeliver user aggregates.
       return;
     }
     const thread =
@@ -728,7 +728,7 @@ export const make = Effect.gen(function* () {
     }
     const environmentId = yield* serverEnvironment.getEnvironmentId;
     const projectSnapshot = yield* projects.snapshot;
-    // Subagents and side chats never publish awareness, and subagents are most threads.
+    // Subagents never publish awareness, and they are most threads.
     const topLevelThreadIds = (yield* threads.listActiveShellIndex()).flatMap((thread) =>
       isListedThreadLineage(thread.lineage) ? [thread.id] : [],
     );

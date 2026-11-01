@@ -43,7 +43,6 @@ export function findPromptLinkPullRequestThread<
     readonly updatedAt: string;
     readonly pullRequests?: ReadonlyArray<ThreadPullRequestLink> | undefined;
     readonly linkedPullRequest?: ThreadLinkedPullRequest | null | undefined;
-    readonly lineage?: { readonly sideChat?: boolean | undefined } | undefined;
   },
 >(threads: ReadonlyArray<T>, pullRequest: PromptLinkPullRequest): T | undefined {
   const key = threadPullRequestKeyOf({
@@ -54,8 +53,6 @@ export function findPromptLinkPullRequestThread<
   let latest: T | undefined;
   for (const thread of threads) {
     if (latest !== undefined && thread.updatedAt <= latest.updatedAt) continue;
-    // Side chats inherit their parent's links but stay hidden.
-    if (thread.lineage?.sideChat === true) continue;
     const linked = visibleThreadPullRequests(threadPullRequestsOf(thread)).some(
       (link) => threadPullRequestKeyOf(link) === key,
     );

@@ -68,12 +68,7 @@ it.each([
   setup();
   await using screen = await render(
     <ToastProvider timeout={0}>
-      <ThreadRelationshipsPanel
-        environmentId={environmentId}
-        threadId={threadId}
-        showLineage
-        showSideChats
-      />
+      <ThreadRelationshipsPanel environmentId={environmentId} threadId={threadId} />
     </ToastProvider>,
   );
 
@@ -101,12 +96,7 @@ it.each([
   setup();
   await using screen = await render(
     <ToastProvider timeout={0}>
-      <ThreadRelationshipsPanel
-        environmentId={environmentId}
-        threadId={threadId}
-        showLineage
-        showSideChats
-      />
+      <ThreadRelationshipsPanel environmentId={environmentId} threadId={threadId} />
     </ToastProvider>,
     { router: "/environment/fork" },
   );
@@ -170,12 +160,7 @@ it("opens an idle child from Lineage when its shell has not been loaded", async 
     ],
   };
   await using screen = await render(
-    <ThreadRelationshipsPanel
-      environmentId={environmentId}
-      threadId={projection.thread.id}
-      showLineage
-      showSideChats
-    />,
+    <ThreadRelationshipsPanel environmentId={environmentId} threadId={projection.thread.id} />,
   );
   await screen.getByRole("button", { name: /Previous agents/ }).click();
   const child = screen.getByRole("button", { name: /Idle child/ });

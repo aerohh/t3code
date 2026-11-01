@@ -49,7 +49,6 @@ import {
   ChevronDownIcon,
   CornerLeftUpIcon,
   GitForkIcon,
-  MessagesSquareIcon,
   MoreHorizontalIcon,
   PlusIcon,
   SquareIcon,
@@ -77,7 +76,6 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { AgentElapsed } from "./AgentElapsed";
 import { ThreadRelationshipIcon, threadRelationshipStatusLabel } from "./ThreadRelationshipIcon";
 import { ThreadLineageWorkflowRow } from "./ThreadLineageWorkflowRow";
-import { openSideChatTab } from "../../lib/sideChatPane";
 
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -356,8 +354,6 @@ function DelegatedFromRow(props: {
 export function ThreadRelationshipsPanel(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
-  readonly showLineage: boolean;
-  readonly showSideChats: boolean;
 }) {
   const ref = scopeThreadRef(props.environmentId, props.threadId);
   const projection = useThreadProjection(ref)?.projection ?? null;
@@ -467,12 +463,9 @@ export function ThreadRelationshipsPanel(props: {
     related = [],
     active = [],
     previous = [],
-    sideChats = [],
-  } = groupBy(relationshipRows, ({ threadId, edge }) => {
-    const isParent = isParentThreadRelationship(edge, props.threadId);
-    if (!isParent && graph.nodes.get(threadId)?.thread?.lineage.sideChat === true)
-      return "sideChats";
-    if (edge.kind !== "subagent" || isParent) return "related";
+  } = groupBy(relationshipRows, ({ edge }) => {
+    if (edge.kind !== "subagent" || isParentThreadRelationship(edge, props.threadId))
+      return "related";
     return ["completed", "failed", "error", "cancelled", "interrupted", "idle"].includes(
       edge.status ?? "",
     )
@@ -497,26 +490,17 @@ export function ThreadRelationshipsPanel(props: {
   // A linked environment's agent may have delegated this thread from there.
   const delegatedFrom = currentThread?.delegatedFrom;
 
-  const lineageVisible =
-    props.showLineage &&
-    (related.length > 0 ||
-      active.length > 0 ||
-      previous.length > 0 ||
-      runningCount > 0 ||
-      remoteSubagents.length > 0 ||
-      delegatedFrom !== undefined ||
-      // Disconnect lives in this heading, so a thread with only side chats still shows it.
-      (canDetach && sideChats.length > 0));
-  const sideChatsVisible = props.showSideChats && sideChats.length > 0;
-  const runningSideChats = sideChats.filter(({ edge }) => edge.status === "running").length;
-
-  if (!lineageVisible && !sideChatsVisible) {
+  if (
+    relationshipRows.length === 0 &&
+    runningCount === 0 &&
+    remoteSubagents.length === 0 &&
+    delegatedFrom === undefined
+  ) {
     return null;
   }
 
   // Idle children can be omitted from the shell; opening one loads its own detail.
   const openThread = (threadId: ThreadId) => {
-    if (openSideChatTab(ref, graph.nodes.get(threadId)?.thread ?? null)) return;
     void navigate({
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(scopeThreadRef(props.environmentId, threadId)),
@@ -612,17 +596,8 @@ export function ThreadRelationshipsPanel(props: {
       (isParent && threadId === parentRef?.threadId
         ? (node?.thread?.activityRunStatus ?? parentNativeStatus)
         : undefined) ?? threadRelationshipRowStatus(graph, { threadId, edge });
-    const RelationshipIcon = isParent
-      ? CornerLeftUpIcon
-      : isSubagent
-        ? BotIcon
-        : node?.thread?.lineage.sideChat === true
-          ? MessagesSquareIcon
-          : GitForkIcon;
-    const relationship =
-      node?.thread?.lineage.sideChat === true && !isParent
-        ? "Side chat"
-        : relationshipLabel(edge, props.threadId);
+    const RelationshipIcon = isParent ? CornerLeftUpIcon : isSubagent ? BotIcon : GitForkIcon;
+    const relationship = relationshipLabel(edge, props.threadId);
     const projectedAgent = isSubagent && !isParent ? subagentsByThreadId.get(threadId) : undefined;
     const workflowGroup =
       projectedAgent === undefined ? undefined : workflowGroupsById.get(projectedAgent.id);
@@ -845,91 +820,71 @@ export function ThreadRelationshipsPanel(props: {
   };
 
   return (
-    <>
-      {lineageVisible ? (
-        <ThreadDetailsSection
-          headingId="thread-details-lineage-heading"
-          title={runningCount > 0 ? `Lineage · ${runningCount} running` : "Lineage"}
-          // A lone "Previous agents" row names itself; the heading returns for status or actions.
-          showHeading={
-            runningCount > 0 ||
-            canDetach ||
-            related.length > 0 ||
-            active.length > 0 ||
-            delegatedFrom !== undefined
-          }
-          data-thread-relationships-panel
-          actions={
-            canDetach ? (
-              <Menu>
-                <MenuTrigger
-                  render={
-                    <ThreadDetailsControl
-                      size="icon-xs"
-                      variant="ghost"
-                      part="icon"
-                      aria-label="More thread actions"
-                      disabled={busyAction !== null}
-                    />
-                  }
-                >
-                  <MoreHorizontalIcon className="size-3.5" />
-                </MenuTrigger>
-                <MenuPopup align="end" className="min-w-60 max-w-(--available-width)">
-                  <MenuItem onClick={() => void detach()}>
-                    <UnplugIcon className="size-3.5" />
-                    Disconnect agent session
-                  </MenuItem>
-                </MenuPopup>
-              </Menu>
-            ) : null
-          }
-        >
-          {delegatedFrom === undefined ? null : (
-            <ThreadLineageRowList hiddenCount={0} onShowMore={() => {}}>
-              <DelegatedFromRow
-                delegatedFrom={delegatedFrom}
-                fallbackLabel={currentThread?.linkOrigin?.label}
-              />
-            </ThreadLineageRowList>
-          )}
-          {groups.map((group) => (
-            <ThreadLineageGroup key={`${scopedThreadKey(ref)}:${group.id}`} {...group}>
-              {(visibleRows) => visibleRows.map(renderRelationshipRow)}
-            </ThreadLineageGroup>
-          ))}
-          {remoteSubagents.length > 0 ? (
-            <ThreadLineageRowList hiddenCount={0} onShowMore={() => {}}>
-              {remoteSubagents.map((agent) => (
-                <RemoteSubagentRow
-                  key={agent.id}
-                  agent={agent}
-                  // Its provider instance belongs to the environment it runs in.
-                  provider={providersByEnvironment
-                    .get(agent.remoteChild.environmentId)
-                    ?.find((entry) => entry.instanceId === agent.providerInstanceId)}
+    <ThreadDetailsSection
+      headingId="thread-details-lineage-heading"
+      title={runningCount > 0 ? `Lineage · ${runningCount} running` : "Lineage"}
+      // A lone "Previous agents" row names itself; the heading returns for status or actions.
+      showHeading={
+        runningCount > 0 ||
+        canDetach ||
+        related.length > 0 ||
+        active.length > 0 ||
+        delegatedFrom !== undefined
+      }
+      data-thread-relationships-panel
+      actions={
+        canDetach ? (
+          <Menu>
+            <MenuTrigger
+              render={
+                <ThreadDetailsControl
+                  size="icon-xs"
+                  variant="ghost"
+                  part="icon"
+                  aria-label="More thread actions"
+                  disabled={busyAction !== null}
                 />
-              ))}
-            </ThreadLineageRowList>
-          ) : null}
-        </ThreadDetailsSection>
+              }
+            >
+              <MoreHorizontalIcon className="size-3.5" />
+            </MenuTrigger>
+            <MenuPopup align="end" className="min-w-60 max-w-(--available-width)">
+              <MenuItem onClick={() => void detach()}>
+                <UnplugIcon className="size-3.5" />
+                Disconnect agent session
+              </MenuItem>
+            </MenuPopup>
+          </Menu>
+        ) : null
+      }
+    >
+      {delegatedFrom === undefined ? null : (
+        <ThreadLineageRowList hiddenCount={0} onShowMore={() => {}}>
+          <DelegatedFromRow
+            delegatedFrom={delegatedFrom}
+            fallbackLabel={currentThread?.linkOrigin?.label}
+          />
+        </ThreadLineageRowList>
+      )}
+      {groups.map((group) => (
+        <ThreadLineageGroup key={`${scopedThreadKey(ref)}:${group.id}`} {...group}>
+          {(visibleRows) => visibleRows.map(renderRelationshipRow)}
+        </ThreadLineageGroup>
+      ))}
+      {remoteSubagents.length > 0 ? (
+        <ThreadLineageRowList hiddenCount={0} onShowMore={() => {}}>
+          {remoteSubagents.map((agent) => (
+            <RemoteSubagentRow
+              key={agent.id}
+              agent={agent}
+              // Its provider instance belongs to the environment it runs in.
+              provider={providersByEnvironment
+                .get(agent.remoteChild.environmentId)
+                ?.find((entry) => entry.instanceId === agent.providerInstanceId)}
+            />
+          ))}
+        </ThreadLineageRowList>
       ) : null}
-      {sideChatsVisible ? (
-        <ThreadDetailsSection
-          headingId="thread-details-side-chats-heading"
-          title={runningSideChats > 0 ? `Side chats · ${runningSideChats} running` : "Side chats"}
-          data-thread-side-chats-panel
-        >
-          <ThreadLineageGroup
-            key={`${scopedThreadKey(ref)}:side-chats`}
-            label={null}
-            rows={sideChats}
-            expanded
-          >
-            {(visibleRows) => visibleRows.map(renderRelationshipRow)}
-          </ThreadLineageGroup>
-        </ThreadDetailsSection>
-      ) : null}
-    </>
+    </ThreadDetailsSection>
   );
 }
