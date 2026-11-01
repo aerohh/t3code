@@ -19,6 +19,7 @@ import { PopoverCreateHandle, PopoverTrigger } from "../ui/popover";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { MessageBookmarksPopover } from "./MessageBookmarks";
+import { ScreenGalleryButton } from "./ScreenGallery";
 
 export interface PanelLayoutControlsProps {
   showThreadPanelControl?: boolean;
@@ -37,6 +38,8 @@ export interface PanelLayoutControlsProps {
   rightPanelUnavailableLabel?: string;
   /** Thread whose bookmarks the cluster offers; null hides the bookmarks button. */
   bookmarksThread?: ScopedThreadRef | null;
+  /** Thread whose screenshot gallery the cluster offers; null hides the gallery button. */
+  galleryThread?: ScopedThreadRef | null;
   /** Only offered on Claude chats that can still have a side chat. */
   sideChatAvailable?: boolean;
   sideChatOpen?: boolean;
@@ -62,6 +65,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   rightPanelShortcutLabel,
   rightPanelUnavailableLabel = "Right panel is unavailable",
   bookmarksThread = null,
+  galleryThread = null,
   sideChatAvailable = false,
   sideChatOpen = false,
   onToggleSideChat,
@@ -102,8 +106,17 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       className="flex h-full shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
       data-panel-layout-controls
     >
+      {showThreadPanelControl && galleryThread ? (
+        <ScreenGalleryButton
+          key={`gallery:${scopedThreadKey(galleryThread)}`}
+          thread={galleryThread}
+        />
+      ) : null}
       {showThreadPanelControl && bookmarksThread ? (
-        <MessageBookmarksPopover key={scopedThreadKey(bookmarksThread)} thread={bookmarksThread} />
+        <MessageBookmarksPopover
+          key={`bookmarks:${scopedThreadKey(bookmarksThread)}`}
+          thread={bookmarksThread}
+        />
       ) : null}
       {showThreadPanelControl && sideChatAvailable && onToggleSideChat ? (
         <Tooltip>

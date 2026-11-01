@@ -16,6 +16,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.messageBookmarksAdd]: "orchestration",
   [WS_METHODS.messageBookmarksRename]: "orchestration",
   [WS_METHODS.messageBookmarksRemove]: "orchestration",
+  [WS_METHODS.screenGalleryGet]: "orchestration",
   [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: "orchestrationV2",
   [ORCHESTRATION_V2_WS_METHODS.getWorkflowScript]: "orchestration",
   [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: "orchestration",

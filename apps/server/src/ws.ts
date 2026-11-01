@@ -98,6 +98,7 @@ import {
   type PullRequestRef,
   WS_METHODS,
   MessageBookmarksRpcGroup,
+  ScreenGalleryRpcGroup,
   WsCoreRpcGroup,
 } from "@t3tools/contracts";
 import {
@@ -167,6 +168,7 @@ import { dedupeSnapshotBodies } from "@t3tools/shared/orchestrationV2DedupedBodi
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
 import * as MessageBookmarks from "./orchestration-v2/MessageBookmarks.ts";
+import * as ScreenGallery from "./orchestration-v2/ScreenGallery.ts";
 import * as OrchestrationEventStore from "./persistence/OrchestrationEventStore.ts";
 import { userFacingDispatchErrorMessage } from "./orchestration-v2/UserFacingErrors.ts";
 import * as ProviderRegistry from "./provider/ProviderRegistry.ts";
@@ -589,7 +591,11 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsCoreRpcGroup = WsCoreRpcGroup.middleware(RpcInstrumentation);
 const ServerMessageBookmarksRpcGroup = MessageBookmarksRpcGroup.middleware(RpcInstrumentation);
-const ServerWsRpcGroup = ServerWsCoreRpcGroup.merge(ServerMessageBookmarksRpcGroup);
+const ServerScreenGalleryRpcGroup = ScreenGalleryRpcGroup.middleware(RpcInstrumentation);
+const ServerWsRpcGroup = ServerWsCoreRpcGroup.merge(
+  ServerMessageBookmarksRpcGroup,
+  ServerScreenGalleryRpcGroup,
+);
 
 // RpcGroup.toLayer derives each handler's requirements by scanning every RPC in
 // the group, so its type cost grows with handlers × RPCs. Near 200 methods that
@@ -1267,6 +1273,15 @@ const layerMessageBookmarksRpc = ServerMessageBookmarksRpcGroup.toLayer(
   }),
 );
 
+const layerScreenGalleryRpc = ServerScreenGalleryRpcGroup.toLayer(
+  Effect.gen(function* () {
+    const screenGallery = yield* ScreenGallery.ScreenGallery;
+    return ServerScreenGalleryRpcGroup.of({
+      [WS_METHODS.screenGalleryGet]: (input) => screenGallery.get(input),
+    });
+  }),
+);
+
 export const layerWsRpc = (
   currentSession: EnvironmentAuth.AuthenticatedSession,
   clientAnalyticsProps: Readonly<Record<string, unknown>>,
@@ -1842,6 +1857,7 @@ export const layerWsRpc = (
           threadSnapshotPagination: true,
           threadFind: true,
           messageBookmarks: true,
+          screenGallery: true,
           threadFindProgressive: true,
           secretProviderSettings: true,
           secretReferences: true,
@@ -3316,7 +3332,7 @@ export const layerWsRpc = (
         yield* OtherWsRpcGroup.toHandlers(otherHandlers),
       );
     }),
-  ).pipe(Layer.merge(layerMessageBookmarksRpc));
+  ).pipe(Layer.merge(layerMessageBookmarksRpc), Layer.merge(layerScreenGalleryRpc));
 
 // Default socket-level Defect frames end every pending client request.
 export const WS_RPC_SERVER_OPTIONS = {
