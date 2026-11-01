@@ -2,6 +2,8 @@ import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { CheckIcon, CircleArrowUpIcon, DownloadIcon, RotateCwIcon } from "lucide-react";
 import type { AnimationEventHandler } from "react";
 
+import { observeVisibleAnimation } from "~/lib/visibleAnimation";
+
 const DOWNLOAD_PROGRESS_RADIUS = 14;
 const DOWNLOAD_PROGRESS_CIRCUMFERENCE = 2 * Math.PI * DOWNLOAD_PROGRESS_RADIUS;
 
@@ -97,6 +99,28 @@ function DesktopUpdateDownloadedIcon() {
         <CheckIcon className="size-2" strokeWidth={3} />
       </span>
     </span>
+  );
+}
+
+export function DesktopUpdateRunningIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      ref={observeVisibleAnimation}
+      className="size-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <g className="motion-safe:visible-animate-update-arrow">
+        <path d="m16 12-4-4-4 4" />
+        <path d="M12 16V8" />
+      </g>
+    </svg>
   );
 }
 

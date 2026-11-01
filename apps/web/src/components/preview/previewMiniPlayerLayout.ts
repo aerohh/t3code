@@ -66,12 +66,12 @@ interface HorizontalSpan {
 
 export interface PreviewMiniPlayerObstacles {
   readonly composer: (HorizontalSpan & { readonly height: number }) | null;
-  readonly detailsCard: (HorizontalSpan & { readonly bottom: number }) | null;
+  readonly findBar: (HorizontalSpan & { readonly bottom: number }) | null;
 }
 
 const NO_PREVIEW_MINI_PLAYER_OBSTACLES: PreviewMiniPlayerObstacles = {
   composer: null,
-  detailsCard: null,
+  findBar: null,
 };
 
 const spanOf = (x: number, width: number): HorizontalSpan => ({ left: x, right: x + width });
@@ -90,8 +90,8 @@ function floorFor(
 }
 
 function ceilingFor(span: HorizontalSpan, obstacles: PreviewMiniPlayerObstacles): number {
-  const { detailsCard } = obstacles;
-  return detailsCard && spansOverlap(span, detailsCard) ? Math.max(0, detailsCard.bottom) : 0;
+  const { findBar } = obstacles;
+  return findBar && spansOverlap(span, findBar) ? Math.max(0, findBar.bottom) : 0;
 }
 
 const availableArea = (
@@ -192,9 +192,9 @@ export function clampPreviewMiniPlayerPosition(
     };
   };
   const fallback = fitRows(inside.x);
-  const { composer, detailsCard } = obstacles;
+  const { composer, findBar } = obstacles;
   const span = spanOf(inside.x, player.width);
-  const beside = [composer, detailsCard]
+  const beside = [composer, findBar]
     .filter(
       (obstacle): obstacle is NonNullable<typeof obstacle> =>
         obstacle !== null && spansOverlap(span, obstacle),
@@ -241,15 +241,15 @@ export function resolvePreviewMiniPlayerFrame(input: {
     source,
     availableArea(
       container,
-      position && width ? { composer: obstacles.composer, detailsCard: null } : obstacles,
+      position && width ? { composer: obstacles.composer, findBar: null } : obstacles,
       position && width ? spanOf(position.x, width) : null,
     ),
   );
-  const { detailsCard } = obstacles;
+  const { findBar } = obstacles;
   const anchored =
     position ??
-    (detailsCard
-      ? { x: detailsCard.right - size.width, y: detailsCard.bottom + PREVIEW_MINI_PLAYER_EDGE_GAP }
+    (findBar
+      ? { x: findBar.right - size.width, y: findBar.bottom + PREVIEW_MINI_PLAYER_EDGE_GAP }
       : {
           x: container.width - PREVIEW_MINI_PLAYER_EDGE_GAP - size.width,
           y: PREVIEW_MINI_PLAYER_EDGE_GAP,

@@ -14,10 +14,10 @@ const hidden = { ...stationary, scaleY: 0 };
 type ThreadItem = Extract<SidebarListItem, { kind: "thread" }>;
 type Layout = Parameters<SortingStrategy>[0];
 // The Done and In progress shelves sit at the top, drawn as boxes like the
-// tag folders; only Snoozed and Settled are pushed to the bottom of the list
-// by the free space above them.
+// tag folders; only Snoozed is pushed to the bottom of the list by the free
+// space above it.
 const isBottomShelfHeader = (item: SidebarListItem | undefined) =>
-  item?.kind === "marker" && (item.marker === "snoozed-header" || item.marker === "settled-header");
+  item?.kind === "marker" && item.marker === "snoozed-header";
 const isCardSection = (section: SidebarSection) =>
   section === "pinned" || section === "done" || section === "working" || section === "active";
 const isTopShelfRow = (item: SidebarListItem) =>
@@ -100,12 +100,9 @@ export function createSidebarCollisionDetection(
       if (pointer.x >= boundary.left && pointer.x <= boundary.right) {
         if (pointer.y < previousY && pointer.y <= boundary.bottom) boundarySection = "pinned";
         else if (pointer.y > previousY && pointer.y >= boundary.top) boundarySection = "active";
-        const nextHeader = (["snoozed-header", "settled-header"] as const)
-          .map((marker) =>
-            args.droppableContainers.find((container) => container.id === sidebarMarkerId(marker)),
-          )
-          .find((container) => container !== undefined);
-        const activeBottom = nextHeader?.node.current?.getBoundingClientRect().top;
+        const activeBottom = args.droppableContainers
+          .find((container) => container.id === sidebarMarkerId("snoozed-header"))
+          ?.node.current?.getBoundingClientRect().top;
         if (boundarySection === "pinned" || (activeBottom != null && pointer.y < activeBottom)) {
           const target = collisions.find((collision) => {
             const id = String(collision.id);
@@ -136,11 +133,7 @@ export function createSidebarCollisionDetection(
 export function createSidebarSortingStrategy(input: {
   items: readonly SidebarListItem[];
   enabled?: boolean;
-  settledOrder: readonly string[];
   activeOrder?: readonly string[];
-  settledExpanded: boolean;
-  settledVisibleCount?: number;
-  routeThreadKey?: string | null;
   snoozedThreadCount?: number;
   cardHeight?: number;
   slimHeight?: number;
@@ -172,7 +165,6 @@ export function createSidebarSortingStrategy(input: {
     let headerScale: number | undefined;
     // Boxes hold their place: nothing is lifted out of one or dropped into one.
     const activeTagBoxItems: SidebarListItem[] = [];
-    const settledTagBoxItems: SidebarListItem[] = [];
     for (const [index, item] of items.entries()) {
       if (item.kind === "marker") {
         if (isBottomShelfHeader(item)) {
@@ -182,10 +174,7 @@ export function createSidebarSortingStrategy(input: {
         continue;
       }
       if (item.kind !== "thread") {
-        (item.kind !== "tag-box-more" && item.section === "active"
-          ? activeTagBoxItems
-          : settledTagBoxItems
-        ).push(item);
+        activeTagBoxItems.push(item);
         continue;
       }
       // Boxed rows carry the box's padding, so they don't measure a plain card.
@@ -201,34 +190,15 @@ export function createSidebarSortingStrategy(input: {
     const labelHeight = (input.boundaryLabelHeight ?? 0) * scale;
     const group = groups[target.section];
     const order =
-      target.section === "pinned"
-        ? target.pinnedOrder
-        : target.section === "settled"
-          ? input.settledOrder
-          : (input.activeOrder ?? target.activeOrder);
+      target.section === "pinned" ? target.pinnedOrder : (input.activeOrder ?? target.activeOrder);
     const ranks = new Map(order.map((key, index) => [key, index]));
     const rank = ranks.get(active.key) ?? Number.POSITIVE_INFINITY;
     const index = group.findIndex(
       (item) => (ranks.get(item.key) ?? Number.POSITIVE_INFINITY) > rank,
     );
     group.splice(index < 0 ? group.length : index, 0, { ...active, section: target.section });
-    const settledOrder = (
-      input.settledOrder.length > 0 ? input.settledOrder : groups.settled.map((item) => item.key)
-    ).filter((key) => key !== active.key || target.section === "settled");
-    const visible = input.settledExpanded
-      ? settledOrder.slice(0, input.settledVisibleCount ?? settledOrder.length)
-      : [];
-    const routeKey = input.routeThreadKey;
-    if (routeKey && settledOrder.includes(routeKey) && !visible.includes(routeKey)) {
-      visible.push(routeKey);
-    }
-    groups.settled = visible.map((key) => ({ kind: "thread", key, section: "settled" }));
     const projected: SidebarListItem[] = [];
     const marker = (name: SidebarListMarker) => projected.push({ kind: "marker", marker: name });
-    const section = (name: "active" | "settled") => {
-      if (groups[name].length > 0) projected.push(...groups[name]);
-      else marker(`${name}-placeholder`);
-    };
     const hasMarker = (name: SidebarListMarker) =>
       items.some((item) => item.kind === "marker" && item.marker === name);
     marker("pinned-header");
@@ -264,7 +234,8 @@ export function createSidebarSortingStrategy(input: {
     if (olderHeaderIndex !== -1 && input.draggedThreadIsOlder) olderKeys.add(active.key);
     const firstOlderIndex = groups.active.findIndex((item) => olderKeys.has(item.key));
     if (firstOlderIndex <= 0) {
-      section("active");
+      if (groups.active.length > 0) projected.push(...groups.active);
+      else marker("active-placeholder");
     } else {
       projected.push(...groups.active.slice(0, firstOlderIndex));
       marker("older-header");
@@ -278,9 +249,6 @@ export function createSidebarSortingStrategy(input: {
       marker("snoozed-header");
       projected.push(...groups.snoozed);
     }
-    marker("settled-header");
-    projected.push(...settledTagBoxItems);
-    section("settled");
     const heights = projected.map((item) => {
       const index = indices.get(sidebarListItemId(item));
       const rect = index === undefined ? undefined : rects[index];

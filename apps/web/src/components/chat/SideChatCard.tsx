@@ -43,7 +43,7 @@ export function useSideChatCard(parentRef: ScopedThreadRef | null) {
   const open = cardOpen && (sideChatThreadId !== null || starting);
 
   // The side chat goes away when its parent is settled, archived or deleted, maybe on another
-  // device. Close the card with it, or the details card would stay hidden behind nothing.
+  // device. Close the card with it so its saved flag does not outlive it.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the side chat is server data that can vanish from another device; the saved card flag follows it
   useEffect(() => {
     if (parentRef === null || !cardOpen || sideChatThreadId !== null || starting) return;
@@ -181,7 +181,7 @@ export function SideChatCard({
   const { animated, present } = useSideChatPresence(open);
   if (!present) return null;
   const canvasHeight = canvas?.container.height ?? 0;
-  const topInset = canvas?.detailsCardTopInset ?? 0;
+  const topInset = canvas?.findBarTopInset ?? 0;
   const height =
     canvasHeight > 0
       ? `${Math.min(Math.round(canvasHeight * 0.6), canvasHeight - topInset - 40)}px`

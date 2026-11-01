@@ -14,13 +14,13 @@ const container = { width: 1_000, height: 700 };
 const source = { width: 1_600, height: 1_000 };
 const gap = PREVIEW_MINI_PLAYER_EDGE_GAP;
 const composer = { left: 100, right: 900, height: 150 };
-const obstacles: PreviewMiniPlayerObstacles = { composer, detailsCard: null };
+const obstacles: PreviewMiniPlayerObstacles = { composer, findBar: null };
 const tallComposer: PreviewMiniPlayerObstacles = {
   composer: { ...composer, height: 300 },
-  detailsCard: null,
+  findBar: null,
 };
-const detailsCard = { left: 680, right: 988, bottom: 260 };
-const withCard: PreviewMiniPlayerObstacles = { composer, detailsCard };
+const findBar = { left: 680, right: 988, bottom: 260 };
+const withFindBar: PreviewMiniPlayerObstacles = { composer, findBar };
 
 describe("resolvePreviewMiniPlayerSourceSize", () => {
   it("uses the size the fill viewport had when it was floated", () => {
@@ -48,7 +48,7 @@ describe("resolvePreviewMiniPlayerFrame", () => {
 
   it("keeps a tall frame parked beside the composer across layout passes", () => {
     const phone = { width: 390, height: 844 };
-    const beside = { composer: { left: 300, right: 900, height: 300 }, detailsCard: null };
+    const beside = { composer: { left: 300, right: 900, height: 300 }, findBar: null };
     const resized = resizePreviewMiniPlayer({
       start: { x: 12, y: 100, width: 240, height: 519 },
       direction: "east",
@@ -124,7 +124,7 @@ describe("resizePreviewMiniPlayer", () => {
   it("lets a player beside a tall composer keep its height on an edge drag", () => {
     const phone = { width: 390, height: 844 };
     const start = { x: 12, y: 100, width: 240, height: 519 };
-    const beside = { composer: { left: 300, right: 900, height: 300 }, detailsCard: null };
+    const beside = { composer: { left: 300, right: 900, height: 300 }, findBar: null };
     expect(
       resizePreviewMiniPlayer({
         start,
@@ -161,39 +161,39 @@ describe("resizePreviewMiniPlayer", () => {
   });
 });
 
-describe("resolvePreviewMiniPlayerFrame with the details card", () => {
-  it("opens under the inline details card with right edges aligned", () => {
+describe("resolvePreviewMiniPlayerFrame with the find bar", () => {
+  it("opens under the find bar with right edges aligned", () => {
     expect(
       resolvePreviewMiniPlayerFrame({
         width: null,
         position: null,
         source,
         container,
-        obstacles: withCard,
+        obstacles: withFindBar,
       }),
     ).toEqual({ x: 988 - 320, y: 260 + gap, width: 320, height: 200 });
   });
 
-  it("opens left of the card when it cannot fit beneath it", () => {
-    const tallCard = { ...withCard, detailsCard: { ...detailsCard, bottom: 480 } };
+  it("opens left of the find bar when it cannot fit beneath it", () => {
+    const tallFindBar = { ...withFindBar, findBar: { ...findBar, bottom: 480 } };
     expect(
       resolvePreviewMiniPlayerFrame({
         width: null,
         position: null,
         source,
         container,
-        obstacles: tallCard,
+        obstacles: tallFindBar,
       }),
     ).toEqual({ x: 680 - gap - 320, y: 700 - 150 - gap - 200, width: 320, height: 200 });
   });
 
-  it("keeps a stored player's size when the card covers its columns", () => {
+  it("keeps a stored player's size when the find bar covers its columns", () => {
     const frame = resolvePreviewMiniPlayerFrame({
       width: 480,
       position: { x: 700, y: 280 },
       source,
       container,
-      obstacles: withCard,
+      obstacles: withFindBar,
     });
     expect(frame).toEqual({
       x: 680 - gap - 480,
@@ -229,8 +229,8 @@ describe("clampPreviewMiniPlayerPosition", () => {
     ).toEqual({ x: composer.right + gap, y: 500 });
   });
 
-  it("clears the card and the composer together in a tight column", () => {
-    const tight = { composer: { left: 0, right: 1_000, height: 300 }, detailsCard };
+  it("clears the find bar and the composer together in a tight column", () => {
+    const tight = { composer: { left: 0, right: 1_000, height: 300 }, findBar };
     expect(clampPreviewMiniPlayerPosition({ x: 700, y: 600 }, container, player, tight)).toEqual({
       x: 680 - gap - 360,
       y: 700 - 300 - gap - 240,
@@ -245,10 +245,10 @@ describe("clampPreviewMiniPlayerPosition", () => {
     ).toEqual({ x: 628, y: 260 + gap });
   });
 
-  it("stays inside the container when a full-width card leaves no open rows", () => {
+  it("stays inside the container when a full-width find bar leaves no open rows", () => {
     const wall = {
       composer,
-      detailsCard: { left: 0, right: 1_000, bottom: 690 },
+      findBar: { left: 0, right: 1_000, bottom: 690 },
     };
     expect(clampPreviewMiniPlayerPosition({ x: 300, y: 500 }, container, player, wall)).toEqual({
       x: 300,

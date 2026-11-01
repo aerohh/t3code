@@ -418,6 +418,23 @@ export function selectThreadRelationshipShells(
   );
 }
 
+/**
+ * The archive is the environment's whole archived list, so lineage loads it only when the
+ * chat or its parent is archived. Archived copies of a live chat are left out.
+ */
+export function threadLineageNeedsArchive(
+  threadId: ThreadId,
+  projection: Pick<OrchestrationV2ThreadProjection, "thread"> | null,
+  relationshipShells: ReadonlyArray<OrchestrationV2ThreadShell>,
+): boolean {
+  const current = projection?.thread ?? relationshipShells.find((thread) => thread.id === threadId);
+  if (current === undefined) return true;
+  const parentThreadId = shellParentThreadId(current);
+  return (
+    parentThreadId !== null && !relationshipShells.some((thread) => thread.id === parentThreadId)
+  );
+}
+
 const relationshipShellsAtomFamily = Atom.family((key: string) => {
   const ref = parseThreadKey(key);
   let previous: ReadonlyArray<OrchestrationV2ThreadShell> = [];

@@ -1,10 +1,4 @@
-import {
-  MessageCircleDashedIcon,
-  PanelBottomIcon,
-  PanelRightIcon,
-  SquareMenuIcon,
-  XIcon,
-} from "lucide-react";
+import { MessageCircleDashedIcon, PanelBottomIcon, PanelRightIcon, XIcon } from "lucide-react";
 import { Maximize2, Minimize2 } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
 import { memo, type ReactNode } from "react";
@@ -13,9 +7,7 @@ import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 
 import { cn } from "~/lib/utils";
 
-import type { ThreadPanelPresentation } from "../../rightPanelLayout";
 import { Button } from "../ui/button";
-import { PopoverCreateHandle, PopoverTrigger } from "../ui/popover";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { MessageBookmarksPopover } from "./MessageBookmarks";
@@ -29,10 +21,6 @@ export interface PanelLayoutControlsProps {
   terminalAvailable: boolean;
   terminalOpen: boolean;
   terminalShortcutLabel: string | null;
-  threadPanelOpen: boolean;
-  threadPanelPresentation: ThreadPanelPresentation;
-  threadPanelPopoverHandle?: ReturnType<typeof PopoverCreateHandle>;
-  threadPanelShortcutLabel: string | null;
   rightPanelAvailable: boolean;
   rightPanelOpen: boolean;
   rightPanelShortcutLabel: string | null;
@@ -48,7 +36,6 @@ export interface PanelLayoutControlsProps {
   sideChatOpen?: boolean;
   onToggleSideChat?: () => void;
   onToggleTerminal: () => void;
-  onToggleThreadPanel: () => void;
   onToggleRightPanel: () => void;
 }
 
@@ -59,10 +46,6 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   terminalAvailable,
   terminalOpen,
   terminalShortcutLabel,
-  threadPanelOpen,
-  threadPanelPresentation,
-  threadPanelPopoverHandle,
-  threadPanelShortcutLabel,
   rightPanelAvailable,
   rightPanelOpen,
   rightPanelShortcutLabel,
@@ -74,37 +57,8 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   sideChatOpen = false,
   onToggleSideChat,
   onToggleTerminal,
-  onToggleThreadPanel,
   onToggleRightPanel,
 }: PanelLayoutControlsProps) {
-  const threadPanelToggle = (
-    <Toggle
-      className="relative shrink-0 [-webkit-app-region:no-drag]"
-      pressed={threadPanelOpen}
-      onPressedChange={threadPanelPresentation === "popover" ? undefined : onToggleThreadPanel}
-      aria-label="Toggle thread details panel"
-      variant="ghost"
-      size="sm"
-    >
-      <SquareMenuIcon className="size-4" />
-    </Toggle>
-  );
-  const threadPanelControl = (
-    <Tooltip>
-      <TooltipTrigger render={<span className="flex shrink-0" />}>
-        {threadPanelPresentation === "popover" ? (
-          <PopoverTrigger handle={threadPanelPopoverHandle} render={threadPanelToggle} />
-        ) : (
-          threadPanelToggle
-        )}
-      </TooltipTrigger>
-      <TooltipPopup side="bottom">
-        Toggle thread details
-        {threadPanelShortcutLabel ? ` (${threadPanelShortcutLabel})` : ""}
-      </TooltipPopup>
-    </Tooltip>
-  );
-
   return (
     <div
       className="flex h-full shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
@@ -147,7 +101,6 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
           <TooltipPopup side="bottom">Side chat</TooltipPopup>
         </Tooltip>
       ) : null}
-      {showThreadPanelControl ? threadPanelControl : null}
       {showTerminalControl ? (
         <Tooltip>
           <TooltipTrigger render={<span className="flex shrink-0" />}>

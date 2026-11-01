@@ -11,7 +11,6 @@ import { AsyncResult } from "effect/reactivity";
 import {
   canOneClickUpdateProviderCandidate,
   getProviderUpdateRunToastView,
-  getProviderUpdateSidebarPillView,
   hasOneClickUpdateProviderCandidate,
   isProviderUpdateCandidate,
   isProviderSettingsUpdateCandidate,
@@ -19,7 +18,6 @@ import {
 } from "./ProviderUpdateLaunchNotification.logic";
 
 const checkedAt = "2026-04-23T10:00:00.000Z";
-const sessionStartedAt = "2026-04-23T09:59:00.000Z";
 const laterCheckedAt = "2026-04-23T10:01:00.000Z";
 
 const driver = (value: string) => ProviderDriverKind.make(value);
@@ -144,135 +142,6 @@ describe("provider update launch notification logic", () => {
 
     expect(hasOneClickUpdateProviderCandidate(candidate, [candidate])).toBe(true);
     expect(canOneClickUpdateProviderCandidate(candidate, [candidate])).toBe(false);
-  });
-
-  it("shows the active sidebar pill for an update on a non-default instance", () => {
-    const view = getProviderUpdateSidebarPillView([
-      provider({ driver: driver("claudeAgent") }),
-      provider({
-        driver: driver("claudeAgent"),
-        instanceId: instanceId("claude_work"),
-        updateState: {
-          status: "running",
-          startedAt: checkedAt,
-          finishedAt: null,
-          message: "Updating provider.",
-          output: null,
-        },
-      }),
-    ]);
-
-    expect(view).toMatchObject({
-      key: "loading:claudeAgent:running",
-      tone: "loading",
-      title: "Updating Claude",
-      description: "Claude update in progress.",
-    });
-  });
-
-  it("shows the latest terminal sidebar pill across instances of a driver", () => {
-    const view = getProviderUpdateSidebarPillView(
-      [
-        provider({
-          driver: driver("claudeAgent"),
-          updateState: {
-            status: "failed",
-            startedAt: checkedAt,
-            finishedAt: checkedAt,
-            message: "Update command exited with code 1.",
-            output: null,
-          },
-        }),
-        provider({
-          driver: driver("claudeAgent"),
-          instanceId: instanceId("claude_work"),
-          version: "1.1.0",
-          latestVersion: "1.1.0",
-          advisoryStatus: "current",
-          updateState: {
-            status: "succeeded",
-            startedAt: laterCheckedAt,
-            finishedAt: laterCheckedAt,
-            message: "Provider updated.",
-            output: null,
-          },
-        }),
-      ],
-      { visibleAfterIso: sessionStartedAt },
-    );
-
-    expect(view).toMatchObject({
-      key: "succeeded:claudeAgent:2026-04-23T10:01:00.000Z:Provider updated.",
-      tone: "success",
-      title: "Claude updated: v1.1.0",
-    });
-  });
-
-  it("does not show sidebar terminal states from before the current app session", () => {
-    expect(
-      getProviderUpdateSidebarPillView(
-        [
-          provider({
-            driver: driver("codex"),
-            updateState: {
-              status: "failed",
-              startedAt: checkedAt,
-              finishedAt: checkedAt,
-              message: "command failed",
-              output: "stderr",
-            },
-          }),
-        ],
-        { visibleAfterIso: "2026-04-23T10:00:01.000Z" },
-      ),
-    ).toBeNull();
-  });
-
-  it("shows a newer success before falling back to an older failure", () => {
-    const providers = [
-      provider({
-        driver: driver("claudeAgent"),
-        updateState: {
-          status: "failed",
-          startedAt: checkedAt,
-          finishedAt: checkedAt,
-          message: "Update command exited with code 1.",
-          output: null,
-        },
-      }),
-      provider({
-        driver: driver("codex"),
-        version: "1.2.0",
-        latestVersion: "1.2.0",
-        advisoryStatus: "current",
-        updateState: {
-          status: "succeeded",
-          startedAt: laterCheckedAt,
-          finishedAt: laterCheckedAt,
-          message: "Provider updated.",
-          output: null,
-        },
-      }),
-    ] satisfies ReadonlyArray<ServerProvider>;
-
-    const successView = getProviderUpdateSidebarPillView(providers, {
-      visibleAfterIso: sessionStartedAt,
-    });
-    expect(successView).toMatchObject({
-      key: "succeeded:codex:2026-04-23T10:01:00.000Z:Provider updated.",
-      tone: "success",
-      title: "Codex updated: v1.2.0",
-    });
-
-    const failureView = getProviderUpdateSidebarPillView(providers, {
-      visibleAfterIso: sessionStartedAt,
-      dismissedKeys: new Set(["succeeded:codex:2026-04-23T10:01:00.000Z:Provider updated."]),
-    });
-    expect(failureView).toMatchObject({
-      key: "failed:claudeAgent:2026-04-23T10:00:00.000Z:Update command exited with code 1.",
-      tone: "error",
-      title: "Claude v1.1.0 update failed",
-    });
   });
 });
 

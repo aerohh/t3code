@@ -1,12 +1,12 @@
 # Updating T3 Code
 
 The app you use and the server running your agents can be on different machines.
-When a server is behind your web or desktop app, the update button at the bottom
-of the sidebar and **Settings → Environments** offer to update it.
+When a server is behind your web or desktop app, the update button next to the
+T3 Code name at the top of the sidebar and **Settings → Environments** offer to update it.
 
 ## Update everything at once
 
-The update button at the bottom of the sidebar updates every connected machine
+The update button at the top of the sidebar updates every connected machine
 in one step. It updates outdated providers, then servers that are behind, then
 the desktop app you are using. Servers move to the
 version your desktop app is installing, or to your web app's version. A

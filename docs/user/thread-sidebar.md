@@ -97,19 +97,25 @@ Pinning does not prevent automatic settlement. Settling a thread removes its pin
 
 On web and desktop, drag a thread between sections to change its state. Drag a thread up into
 the pinned section to pin it at the spot you drop it; drag a pinned thread down into the active
-list to unpin it. Dragging a thread onto the **Settled** header settles it, and dragging a settled
-thread into the active list un-settles it. A snoozed thread can be dragged out of the snoozed
+list to unpin it. A snoozed thread can be dragged out of the snoozed
 shelf, which wakes it, but threads cannot be dragged into the shelf because snoozing needs a wake
 time. Dragging a pinned thread out of the pinned section does not ask for unpin confirmation.
 Pinned and active boundary labels appear only while dragging, without moving the rows. The
 other rows slide aside to show where the thread will land. When you cross into another section,
-the dragged thread shows the action the drop performs, with its icon: **Pin**, **Unpin**,
-**Settle**, **Un-settle**, or **Wake**. Its status and hover actions hide during the drag. A pinned
+the dragged thread shows the action the drop performs, with its icon: **Pin**, **Unpin**, or
+**Wake**. Its status and hover actions hide during the drag. A pinned
 thread keeps its pin only while it stays in the pinned section; once it leaves, the badge takes
 over. Reordering within the same section shows no badge. When there are no pins, drag to the top
 edge to pin a thread. Section labels stay readable for the whole drag, and the section the
 thread is over takes the accent color. Section labels also
-identify empty sections and a collapsed settled shelf.
+identify empty sections.
+
+On web and desktop, settled threads are kept out of the thread list. A settled thread you have
+open stays at the top under **Settled** until you leave it. Click the check button next to the
+project filter to show only settled threads; the project filter still applies. Click it again, or
+the close button above the list, to return. Use **Settle** and **Un-settle** on a thread to move
+it in or out; settled threads can't be dragged. The legacy sidebar (**Settings → Labs →
+Sidebar (legacy)**) lists settled threads in their projects instead.
 
 Drag within the pinned or active section to change its order. Other rows slide aside to show the
 spot where the thread will land. Drops into either section keep the position you choose. On
@@ -127,8 +133,8 @@ after the drop.
 
 New threads appear above the active threads you have arranged. Settling clears a thread's active
 position, so using **Un-settle** returns it to the top. Pinning and snoozing preserve its active
-position until you move it again. Thread activity does not change the order. The settled shelf
-continues to use settlement time.
+position until you move it again. Thread activity does not change the order. Settled threads stay
+ordered by settlement time.
 
 If dragging is unavailable for one environment, update the T3 Code server running in that
 environment. Pinned and active reordering require server support. Threads from older servers keep
@@ -212,7 +218,7 @@ but an old closed or merged pull request does not settle work you
 resumed after it closed. Only your own messages count as resuming. A turn that
 finished background work or a pull request watch starts on its own does not.
 
-To keep one thread out of the settled shelf no matter how long it sits idle, open its menu,
+To keep one thread from settling on its own no matter how long it sits idle, open its menu,
 choose **Auto-settle behavior**, and pick **Disabled**. The current option is checked. Pick
 **Enabled** to return to the usual rules. Manual settle, snooze, and archive still work while it
 is disabled.
@@ -331,15 +337,17 @@ Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it
 finishes; the call's own result shows its status.
 
-On web and desktop, the thread details card lists the local servers that the
-thread's terminals or its Claude agent started, with their ports. Not every one
-serves a web page. A server the agent started stays listed after the agent's
-turn ends.
+On web and desktop, the bar at the bottom of the sidebar shows the open
+thread's branch next to the settings button. Hover it for the added and
+removed line counts, or click it for the thread details: workspace, branch,
+scripts, and the local servers that the thread's terminals or its Claude agent
+started, with their ports. Not every one serves a web page. A server the agent
+started stays listed after the agent's turn ends.
 Select a server to open it in the browser panel. **Stop** ends the server's job
 and keeps the agent, the terminal, and T3 Code running. Stop needs terminal
 access to the environment and is not available on Windows.
 
-To choose what the thread details card shows, right-click the card or open
+To choose what the thread details show, right-click them or open
 **Settings → Appearance → Thread details**. Hidden rows keep their keyboard
 shortcuts, such as Open in editor and project scripts. **Reset to default** brings
 back the standard rows.

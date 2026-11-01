@@ -1,11 +1,12 @@
 import { useAtomValue } from "@effect/atom-react";
-import { type ReactNode, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 
 import { cn } from "~/lib/utils";
 import { environmentIdsKey } from "~/state/environmentAtomList";
 import { environmentUpdateStatesAtom } from "~/state/server";
 import { useServerUpdate } from "../ServerUpdateAction";
 import { Button } from "../ui/button";
+import { DesktopUpdateRunningIcon } from "./DesktopUpdateStatusIcon";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import {
   describeUpdateCapsule,
@@ -58,12 +59,10 @@ function localStatusLabel(run: UpdateEverythingRun, local: UpdateRunLocalState, 
 export function SidebarUpdateCapsule({
   run,
   local,
-  icon,
   onRestart,
 }: {
   readonly run: UpdateEverythingRun;
   readonly local: UpdateRunLocalState;
-  readonly icon: ReactNode;
   readonly onRestart?: () => Promise<void>;
 }) {
   const machines = useUpdateRunMachineViews(run);
@@ -84,33 +83,44 @@ export function SidebarUpdateCapsule({
     else dismissSettledUpdateRunMachines();
   };
 
+  const triggerLabel = view.slow
+    ? `${view.label} ${view.slow.status} ${view.slow.elapsed}`
+    : view.label;
+  const inProgress = view.action === null && view.tone !== "failed";
+
   return (
     <Popover>
-      <div
-        className={cn(
-          "relative flex h-8 min-w-0 flex-1 items-center rounded-full bg-sidebar-control-surface text-sidebar-foreground",
-          view.tone === "slow" && "ring-1 ring-warning/40 ring-inset",
-          view.tone === "failed" && "ring-1 ring-destructive/40 ring-inset",
-        )}
-      >
+      {inProgress ? (
         <PopoverTrigger
           render={
             <button
               type="button"
-              aria-label={
-                view.slow ? `${view.label} ${view.slow.status} ${view.slow.elapsed}` : view.label
-              }
-              className="absolute inset-0 cursor-pointer rounded-full outline-hidden ring-ring hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset"
-            />
+              aria-label={triggerLabel}
+              className="grid size-7 shrink-0 cursor-pointer place-items-center rounded-full bg-sidebar-control-surface text-sidebar-foreground outline-hidden ring-ring hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset"
+            >
+              <DesktopUpdateRunningIcon />
+            </button>
           }
         />
-        <span className="pointer-events-none relative min-w-0 flex-1 truncate pl-3 text-xs">
-          <span className={cn(view.tone === "failed" && "text-destructive")}>{view.label}</span>
-          {view.slow ? (
-            <span className="text-warning tabular-nums"> {view.slow.elapsed}</span>
-          ) : null}
-        </span>
-        {view.action !== null ? (
+      ) : (
+        <div
+          className={cn(
+            "relative flex h-7 min-w-0 items-center rounded-full bg-sidebar-control-surface text-sidebar-foreground",
+            view.tone === "failed" && "ring-1 ring-destructive/40 ring-inset",
+          )}
+        >
+          <PopoverTrigger
+            render={
+              <button
+                type="button"
+                aria-label={triggerLabel}
+                className="absolute inset-0 cursor-pointer rounded-full outline-hidden ring-ring hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset"
+              />
+            }
+          />
+          <span className="pointer-events-none relative min-w-0 flex-1 truncate pl-3 text-xs">
+            <span className={cn(view.tone === "failed" && "text-destructive")}>{view.label}</span>
+          </span>
           <button
             type="button"
             className="relative shrink-0 cursor-pointer pr-3 pl-1.5 text-xs underline decoration-muted-foreground/60 underline-offset-3 hover:decoration-current"
@@ -118,13 +128,9 @@ export function SidebarUpdateCapsule({
           >
             {actionLabel}
           </button>
-        ) : (
-          <span className="pointer-events-none relative grid size-8 shrink-0 place-items-center">
-            {icon}
-          </span>
-        )}
-      </div>
-      <PopoverPopup side="top" align="end" padding="compact" width="sm">
+        </div>
+      )}
+      <PopoverPopup side="bottom" align="end" padding="compact" width="sm">
         <div className="flex flex-col gap-1 text-xs">
           {run.localVersion !== null ? (
             <div className="flex items-center justify-between gap-3">

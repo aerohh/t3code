@@ -2,6 +2,7 @@ import { ArrowLeftIcon, ArrowRightIcon, ChartNoAxesColumnIcon, SettingsIcon } fr
 import type { ReactNode } from "react";
 import { memo } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import { create } from "zustand";
 
 import { useAtomValue } from "@effect/atom-react";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
@@ -35,7 +36,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { isSidebarUtilityPage, useNavigateToMainApp } from "./mainAppLocation";
 import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
-import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { observeResize } from "~/lib/observeResize";
@@ -88,6 +88,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
             </Badge>
           </div>
         ) : null}
+        <SidebarUpdatePill />
       </div>
     </div>
   );
@@ -256,45 +257,90 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   };
 
   return (
-    <SidebarMenu className="flex-row items-center">
-      {isOnUtilityPage ? (
-        <SidebarMenuItem className="min-w-0 flex-1">
-          <SidebarMenuButton onClick={handleBackClick}>
-            <ArrowLeftIcon />
-            <span>Back</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      ) : (
-        <>
-          <SidebarUtilityItem
-            icon={<SettingsIcon />}
-            label="Settings"
-            onClick={handleSettingsClick}
-          />
-          {pullRequestsSupported ? (
+    <div className="rounded-xl bg-sidebar-control-surface/50 p-0.5">
+      <SidebarThreadDetailsPanelSlot />
+      <SidebarMenu className="flex-row items-center">
+        {isOnUtilityPage ? (
+          <SidebarMenuItem className="min-w-0 flex-1">
+            <SidebarMenuButton onClick={handleBackClick}>
+              <ArrowLeftIcon />
+              <span>Back</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ) : (
+          <>
             <SidebarUtilityItem
-              icon={<PullRequestGlyph.pullRequest />}
-              label="Pull requests"
-              onClick={handlePullRequestsClick}
+              icon={<SettingsIcon />}
+              label="Settings"
+              onClick={handleSettingsClick}
             />
-          ) : null}
-          <SidebarUtilityItem
-            icon={<ChartNoAxesColumnIcon />}
-            label="Usage"
-            onClick={handleUsageClick}
-          />
-        </>
-      )}
-      <SidebarThreadUndoNotice />
-      <SidebarUpdatePill />
-    </SidebarMenu>
+            {pullRequestsSupported ? (
+              <SidebarUtilityItem
+                icon={<PullRequestGlyph.pullRequest />}
+                label="Pull requests"
+                onClick={handlePullRequestsClick}
+              />
+            ) : null}
+            <SidebarUtilityItem
+              icon={<ChartNoAxesColumnIcon />}
+              label="Usage"
+              onClick={handleUsageClick}
+            />
+          </>
+        )}
+        <SidebarThreadUndoNotice />
+        <SidebarThreadDetailsSlot />
+      </SidebarMenu>
+    </div>
   );
 });
+
+const useThreadDetailsSlotStore = create<{
+  button: HTMLElement | null;
+  panel: HTMLElement | null;
+}>(() => ({ button: null, panel: null }));
+
+const setThreadDetailsButtonSlot = (button: HTMLElement | null) => {
+  useThreadDetailsSlotStore.setState({ button });
+};
+
+const setThreadDetailsPanelSlot = (panel: HTMLElement | null) => {
+  useThreadDetailsSlotStore.setState({ panel });
+};
+
+/**
+ * The open chat portals its branch button and details into the footer dock, so they keep
+ * the chat's state.
+ */
+export function useSidebarThreadDetailsSlots() {
+  const button = useThreadDetailsSlotStore((state) => state.button);
+  const panel = useThreadDetailsSlotStore((state) => state.panel);
+  return { button, panel };
+}
+
+export function SidebarThreadDetailsSlot() {
+  return (
+    <li
+      ref={setThreadDetailsButtonSlot}
+      className="flex min-w-0 flex-1 items-center justify-end empty:hidden"
+      data-sidebar-thread-details
+    />
+  );
+}
+
+export function SidebarThreadDetailsPanelSlot() {
+  return (
+    <div
+      ref={setThreadDetailsPanelSlot}
+      className="mb-0.5 border-b border-sidebar-border empty:hidden"
+      data-sidebar-thread-details-panel
+    />
+  );
+}
 
 export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   return (
     <SidebarFooter>
-      <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />
       <SidebarUtilityMenu />
     </SidebarFooter>

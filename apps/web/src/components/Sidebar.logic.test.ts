@@ -1460,9 +1460,23 @@ describe("Working shelf (beta)", () => {
       marker("pinned-divider"),
       row("a1", "active"),
       row("a2", "active"),
-      marker("settled-header"),
-      row("s1", "settled"),
     ];
+
+    it("never settles or un-settles by drag", () => {
+      const settledView: readonly SidebarListItem[] = [
+        marker("settled-header"),
+        row("s1", "settled"),
+        row("s2", "settled"),
+      ];
+      expect(resolveSidebarDropTarget(settledView, "s2", "s1")).toBeNull();
+      expect(
+        resolveSidebarDropTarget(
+          [...items, marker("settled-header"), row("s1", "settled")],
+          "a1",
+          "s1",
+        ),
+      ).toBeNull();
+    });
 
     it("never drops into the Done or In progress shelves, and keeps them out of both orders", () => {
       expect(resolveSidebarDropTarget(items, "a1", "d1")).toBeNull();
@@ -1484,7 +1498,6 @@ describe("Working shelf (beta)", () => {
     it.each([
       ["pinned", "p1"],
       ["active", "a2"],
-      ["settled", "s1"],
     ] as const)(
       "does not move a Working thread into %s when its reference drag ends in the sidebar",
       (section, overKey) => {
@@ -1814,7 +1827,6 @@ describe("Working shelf (beta)", () => {
         order: null,
         assignments: [],
         unpin: true,
-        unsettle: false,
         unsnooze: false,
       });
     });

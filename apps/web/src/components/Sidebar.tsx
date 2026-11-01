@@ -141,6 +141,7 @@ import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useBoringSidebarEnabled, useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
+import { ThreadRelationshipsPanel } from "./chat/ThreadRelationshipsControl";
 import { useNowMinute } from "../hooks/useNowMinute";
 import {
   useEnvironmentIdentities,
@@ -298,6 +299,7 @@ import {
 import {
   SidebarDragBoundary,
   SidebarSectionHeader,
+  SidebarSettledViewHeader,
   SidebarSectionPlaceholder,
   SidebarEmptyShelfHeader,
   SidebarDayLabel,
@@ -359,7 +361,6 @@ const EMPTY_THREADS: readonly EnvironmentThreadShell[] = [];
 
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
-const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
 const DONE_SHELF_EXPANDED_KEY = "t3code:sidebar:done-expanded";
 const WORKING_SHELF_EXPANDED_KEY = "t3code:sidebar:working-expanded";
@@ -379,7 +380,7 @@ const inboxReturns = createInboxReturnTracker();
 type SidebarOptimisticDrop = {
   readonly key: string;
   readonly sourceSection: SidebarSection;
-  readonly section: "pinned" | "active" | "settled";
+  readonly section: "pinned" | "active";
   readonly occurredAt: string;
   readonly clearsSnooze: boolean;
   readonly order: readonly string[] | null;
@@ -415,30 +416,23 @@ function threadShellKey(thread: Pick<SidebarThreadSummary, "environmentId" | "id
   return scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
 }
 
-const NO_DRAGGED_ORDER: readonly string[] = [];
 const NO_DRAGGED_ORDERS: {
-  readonly settledOrder: readonly string[];
   readonly activeOrder: readonly string[] | undefined;
   readonly draggedThreadIsOlder: boolean;
-} = { settledOrder: NO_DRAGGED_ORDER, activeOrder: undefined, draggedThreadIsOlder: false };
+} = { activeOrder: undefined, draggedThreadIsOlder: false };
 
 function resolveDraggedOrders(input: {
   readonly drag: { readonly activeKey: string; readonly occurredAt: string };
   readonly threadByKey: ReadonlyMap<string, EnvironmentThreadShell>;
-  readonly settledThreads: readonly EnvironmentThreadShell[];
   readonly activeThreads: readonly EnvironmentThreadShell[];
   readonly workingShelfEnabled: boolean;
 }): typeof NO_DRAGGED_ORDERS {
-  const { drag, threadByKey, settledThreads, activeThreads, workingShelfEnabled } = input;
+  const { drag, threadByKey, activeThreads, workingShelfEnabled } = input;
   const thread = threadByKey.get(drag.activeKey);
   if (thread === undefined) return NO_DRAGGED_ORDERS;
   const others = (list: readonly EnvironmentThreadShell[]) =>
     list.filter((candidate) => threadShellKey(candidate) !== drag.activeKey);
   return {
-    settledOrder: sortSettledThreads([
-      ...others(settledThreads),
-      applySidebarThreadDrop(thread, "settled", drag.occurredAt),
-    ]).map(threadShellKey),
     activeOrder: workingShelfEnabled
       ? sortThreads(
           [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
@@ -511,11 +505,7 @@ function useSidebarThreads(input: {
   const nowMinute = useNowMinute();
   // Minute-quantized clocks would delay second-precise snooze wakes by up to a minute.
   const snoozeWakeClock = useSnoozeWakeClock(threads);
-  const [settledShelfExpanded, setSettledShelfExpanded] = useLocalStorage(
-    SETTLED_SHELF_EXPANDED_KEY,
-    false,
-    Schema.Boolean,
-  );
+  const [settledViewOpen, setSettledViewOpen] = useState(false);
   const [snoozedShelfExpanded, setSnoozedShelfExpanded] = useLocalStorage(
     SNOOZED_SHELF_EXPANDED_KEY,
     false,
@@ -591,7 +581,7 @@ function useSidebarThreads(input: {
   // Older settled threads load in pages; the shelf lists them only as far as they are loaded.
   const olderSettledShelf = useOlderSettledShelf({
     scopes: olderSettledScopes([...serverConfigs.keys()], scopedProjectKeys),
-    expanded: settledShelfExpanded,
+    expanded: settledViewOpen,
     visibleCount: settledVisibleCount,
   });
   const listedSettledThreads = settledThreads.filter(olderSettledShelf.isListed);
@@ -638,7 +628,7 @@ function useSidebarThreads(input: {
   })();
   // A collapsed shelf shows no boxes, so a tagged open thread is kept here
   // as a plain row too.
-  const renderedSettledThreads = settledShelfExpanded
+  const renderedSettledThreads = settledViewOpen
     ? visibleSettledThreads
     : routeThreadOnly(settledThreads, routeRowThreadKey);
   const renderedActiveTagBoxes = activeTagBoxes.map((box) => {
@@ -656,7 +646,7 @@ function useSidebarThreads(input: {
       liftedCount: liftedCountByTagKey.get(box.tagKey) ?? 0,
     };
   });
-  const renderedSettledTagBoxes = settledShelfExpanded
+  const renderedSettledTagBoxes = settledViewOpen
     ? settledTagBoxes.map((box) => {
         const open = isSidebarTagBoxOpen(tagBoxToggles, "settled", box.tagKey);
         return {
@@ -741,7 +731,6 @@ function useSidebarThreads(input: {
       ...snoozedThreads,
       ...settledThreads,
     ],
-    settledVisibleCount,
     settledCount,
     olderSettledShelf,
     hiddenSettledCount: Math.max(
@@ -755,7 +744,6 @@ function useSidebarThreads(input: {
       })),
     looseActiveThreads,
     looseActiveDayLabels,
-    looseSettledThreads,
     renderedActiveTagBoxes,
     renderedSettledTagBoxes,
     toggleTagBox: (section: SidebarTagBoxSection, tagKey: string) =>
@@ -769,8 +757,8 @@ function useSidebarThreads(input: {
             SETTLED_TAIL_PAGE_COUNT,
         ),
       })),
-    settledShelfExpanded,
-    toggleSettledShelf: () => setSettledShelfExpanded((value) => !value),
+    settledViewOpen,
+    toggleSettledView: () => setSettledViewOpen((value) => !value),
     snoozedShelfExpanded,
     toggleSnoozedShelf: () => setSnoozedShelfExpanded((value) => !value),
     doneShelfExpanded,
@@ -857,12 +845,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
         optimisticDrop.occurredAt,
         optimisticDrop.assignedKeys.get(threadKey),
       );
-      (optimisticDrop.section === "pinned"
-        ? pinned
-        : optimisticDrop.section === "settled"
-          ? settled
-          : inbox(projected, true)
-      ).push(
+      (optimisticDrop.section === "pinned" ? pinned : inbox(projected, true)).push(
         optimisticDrop.clearsSnooze
           ? projected
           : { ...projected, snoozedAt: thread.snoozedAt, snoozedUntil: thread.snoozedUntil },
@@ -1510,16 +1493,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     doneThreads,
     workingThreads,
     snoozedThreads,
-    settledThreads,
     snoozeNow,
     searchableThreads,
-    settledVisibleCount,
     settledCount,
     olderSettledShelf,
     hiddenSettledCount,
     showMoreSettled,
-    settledShelfExpanded,
-    toggleSettledShelf,
+    settledViewOpen,
+    toggleSettledView,
     snoozedShelfExpanded,
     toggleSnoozedShelf,
     doneShelfExpanded,
@@ -1543,7 +1524,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     activeKeysById,
     looseActiveThreads,
     looseActiveDayLabels,
-    looseSettledThreads,
     renderedActiveTagBoxes,
     renderedSettledTagBoxes,
     toggleTagBox,
@@ -1930,9 +1910,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     };
   };
 
-  // Done and In progress rows can supply chat context, but never preview
-  // sidebar movement.
+  // Done, In progress and settled rows can supply chat context, but never
+  // preview sidebar movement.
   const isContextDrag =
+    dragState?.activeSection === "settled" ||
     dragState?.contextDrag === true ||
     dragState?.activeSection === "done" ||
     dragState?.activeSection === "working";
@@ -2158,12 +2139,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     // Boring mode keeps a pinned open project or one the user filtered to, so it can start a thread.
     if (
       !hasProjectFolders &&
+      !settledViewOpen &&
       pinnedThreads.length +
         doneThreads.length +
         workingThreads.length +
         activeThreads.length +
-        snoozedThreads.length +
-        settledCount ===
+        snoozedThreads.length ===
         0
     ) {
       return [];
@@ -2191,6 +2172,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       }
       return boxItems;
     };
+    if (settledViewOpen) {
+      return [
+        { kind: "marker", marker: "settled-header" },
+        ...tagBoxItemsOf(renderedSettledTagBoxes, "settled"),
+        ...rowsOf(renderedSettledThreads, "settled"),
+      ];
+    }
     const items: SidebarListItem[] = [{ kind: "marker", marker: "pinned-header" }];
     const pinnedRows = rowsOf(pinnedThreads, "pinned");
     items.push(...pinnedRows);
@@ -2221,11 +2209,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       items.push({ kind: "marker", marker: "snoozed-header" });
       items.push(...rowsOf(visibleSnoozedThreads, "snoozed"));
     }
-    items.push({ kind: "marker", marker: "settled-header" });
-    items.push(...tagBoxItemsOf(renderedSettledTagBoxes, "settled"));
-    const settledRows = rowsOf(renderedSettledThreads, "settled");
-    items.push({ kind: "marker", marker: "settled-placeholder" });
-    items.push(...settledRows);
     return items;
   })();
   // Preserve the list while streamed updates leave order unchanged to retain row memoization.
@@ -2269,9 +2252,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     dragState === null && sidebarListItems.length + visibleDraftSessionCount > 0;
   // Cache on both fields so layout-key changes trigger the effect even when animate is unchanged.
   const listMotionPass = { layoutKey: listMotionLayoutKey, animate: listMotionAnimate };
-  const shelfExpansionKey = [workingShelfExpanded, snoozedShelfExpanded, settledShelfExpanded].join(
-    ":",
-  );
+  const shelfExpansionKey = [workingShelfExpanded, snoozedShelfExpanded].join(":");
   const previousShelfExpansionKeyRef = useRef(shelfExpansionKey);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tells the list motion controller to animate or not after each layout-affecting commit
   useLayoutEffect(() => {
@@ -2293,30 +2274,20 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const sortableIds = sidebarListItems.map(sidebarListItemId);
   // Outside a drag the orders are constants, so the strategy, and with it
   // every sortable row, keeps its identity while thread shells stream in.
-  const {
-    settledOrder: draggedSettledOrder,
-    activeOrder: draggedActiveOrder,
-    draggedThreadIsOlder,
-  } = dragState === null
-    ? NO_DRAGGED_ORDERS
-    : resolveDraggedOrders({
-        drag: dragState,
-        threadByKey,
-        // A drop lands in the loose tail. A collapsed shelf renders only the open
-        // thread, tagged or not, so there every settled thread keeps its rank.
-        settledThreads: settledShelfExpanded ? looseSettledThreads : settledThreads,
-        activeThreads: looseActiveThreads,
-        workingShelfEnabled,
-      });
+  const { activeOrder: draggedActiveOrder, draggedThreadIsOlder } =
+    dragState === null
+      ? NO_DRAGGED_ORDERS
+      : resolveDraggedOrders({
+          drag: dragState,
+          threadByKey,
+          activeThreads: looseActiveThreads,
+          workingShelfEnabled,
+        });
   const sidebarSortingStrategy = createSidebarSortingStrategy({
     items: sidebarListItems,
     enabled: !isContextDrag,
     boundaryLabelHeight: SIDEBAR_DRAG_LABEL_HEIGHT,
-    settledOrder: draggedSettledOrder,
     ...(draggedActiveOrder === undefined ? {} : { activeOrder: draggedActiveOrder }),
-    settledExpanded: settledShelfExpanded,
-    settledVisibleCount,
-    routeThreadKey: routeRowThreadKey,
     snoozedThreadCount: snoozedThreads.length,
     draggedThreadIsOlder,
   });
@@ -2337,8 +2308,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             activeKey: draggedThreadKey,
             activeSection: draggedFromSection,
             activePinned: source.pinnedAt != null,
-            activeSettled: source.settledOverride === "settled",
-            supportsSettlement: serverConfigs.has(source.environmentId),
             target,
             pinnedOrder: pinnedKeys,
             pinnedKeysById,
@@ -2370,8 +2339,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       activeKey,
       activeSection,
       activePinned: activeThread.pinnedAt != null,
-      activeSettled: activeThread.settledOverride === "settled",
-      supportsSettlement: serverConfigs.has(activeThread.environmentId),
       target,
       pinnedOrder: pinnedKeys,
       pinnedKeysById,
@@ -2382,16 +2349,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       activeTimeOrdered: workingShelfEnabled,
     });
     if (plan.kind === "none") return;
-    if (plan.kind === "settle" && settlingThreadKeysRef.current.has(activeKey)) return;
     const assignments =
       plan.kind === "pin"
         ? [
             ...(plan.orderKey === undefined ? [] : [{ id: activeKey, orderKey: plan.orderKey }]),
             ...plan.extraAssignments,
           ]
-        : plan.kind === "reorder-pinned" || plan.kind === "move-active"
-          ? plan.assignments
-          : [];
+        : plan.assignments;
     if (
       !checkThreadOperations(
         [activeKey, ...assignments.map(({ id }) => id)].flatMap((key) => {
@@ -2406,11 +2370,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       sourceSection: activeSection,
       section: target.section,
       occurredAt: new Date().toISOString(),
-      clearsSnooze:
-        plan.kind === "pin" ||
-        plan.kind === "settle" ||
-        (plan.kind === "move-active" && plan.unsnooze),
-      order: plan.kind === "settle" ? null : plan.order,
+      clearsSnooze: plan.kind === "pin" || (plan.kind === "move-active" && plan.unsnooze),
+      order: plan.order,
       keysAtDrop: target.section === "active" ? activeKeysById : pinnedKeysById,
       assignedKeys: new Map(assignments.map(({ id, orderKey }) => [id, orderKey])),
     };
@@ -2436,32 +2397,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         return false;
       };
       switch (plan.kind) {
-        case "settle": {
-          settlingThreadKeysRef.current.add(activeKey);
-          const navigateAfterSettle = planForwardNavigation(activeKey);
-          const settled = await run(settleThread(threadRef), "Failed to settle thread").finally(
-            () => settlingThreadKeysRef.current.delete(activeKey),
-          );
-          if (
-            settled &&
-            shouldNavigateAfterThreadPark({
-              threadKey: activeKey,
-              currentThreadKey: readRouteThreadKey(router),
-              action: "settle",
-              now: new Date().toISOString(),
-              thread: readThreadShell(threadRef),
-            })
-          )
-            navigateAfterSettle?.();
-          return;
-        }
         case "move-active":
           if (plan.unpin && !(await run(unpinThread(threadRef), "Failed to unpin thread"))) return;
-          if (
-            plan.unsettle &&
-            !(await run(unsettleThread(threadRef), "Failed to un-settle thread"))
-          )
-            return;
           if (plan.unsnooze && !(await run(unsnoozeThread(threadRef), "Failed to wake thread")))
             return;
           break;
@@ -3478,7 +3415,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   </ComboboxPopup>
                 </Combobox>
               }
-              onNewProject={openAddProjectCommandPalette}
+              settledViewOpen={settledViewOpen}
+              onToggleSettledView={toggleSettledView}
               onNewThread={handleNewThreadClick}
               newThreadDisabled={projects.length === 0}
               newThreadShortcutLabel={newThreadShortcutLabel}
@@ -3626,6 +3564,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           : isCard
                             ? "card"
                             : "slim";
+                        const settledWhileOpen = section === "settled" && !settledViewOpen;
                         return (
                           <SortableThreadRow
                             key={threadKey}
@@ -3633,6 +3572,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             contextDrag={isContextDrag}
                             sortableDisabled={
                               projectFolders !== null ||
+                              // Drawn above the list, outside the order drops are worked out from.
+                              settledWhileOpen ||
                               renamingThreadKey === threadKey ||
                               // Rows inside a tag box can't be dragged yet: the
                               // drop math only knows the loose list. Tagged rows
@@ -3662,6 +3603,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             snoozeSupported={serverConfigs.has(thread.environmentId)}
                             pinningSupported={serverConfigs.has(thread.environmentId)}
                             isPinned={thread.pinnedAt != null}
+                            settledWhileOpen={settledWhileOpen}
                             tagBoxPart={tagBoxPart ?? shelfBoxPart}
                             dropVerb={
                               dragState?.activeKey === threadKey
@@ -3736,6 +3678,20 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       };
                       const from = isContextDrag ? null : (dragState?.activeSection ?? null);
                       const items: ReactNode[] = [
+                        ...(settledViewOpen || renderedSettledThreads.length === 0
+                          ? []
+                          : [
+                              <li
+                                key="open-settled-label"
+                                data-thread-selection-safe
+                                className="mx-0.5 flex h-7 list-none items-end px-2 pb-1.5 text-xs font-medium text-sidebar-muted-foreground/60"
+                              >
+                                Settled
+                              </li>,
+                              ...renderedSettledThreads.map((thread) =>
+                                renderThreadRow(thread, "settled"),
+                              ),
+                            ]),
                         <SidebarDraftBlock
                           key="draft-sessions"
                           projectByKey={projectByKey}
@@ -3995,36 +3951,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             break;
                           case "settled-header":
                             items.push(
-                              <SidebarSectionHeader
-                                key="settled-shelf-header"
-                                marker="settled-header"
-                                className={cn(snoozedThreads.length === 0 && "mt-auto")}
-                                label="Settled"
+                              <SidebarSettledViewHeader
+                                key="settled-view-header"
                                 count={settledCount}
-                                dragging={from !== null}
-                                isDropTarget={dragTargetSection === "settled"}
-                                toggle={{
-                                  expanded: settledShelfExpanded,
-                                  onToggle: toggleSettledShelf,
-                                }}
-                              />,
-                            );
-                            break;
-                          case "settled-placeholder":
-                            items.push(
-                              <SidebarSectionPlaceholder
-                                key="settled-placeholder"
-                                marker="settled-placeholder"
-                                label="Settled"
-                                showHint={
-                                  from !== null &&
-                                  (renderedSettledThreads.length === 0 ||
-                                    (from === "settled" &&
-                                      renderedSettledThreads.length === 1 &&
-                                      dragTargetSection !== null &&
-                                      dragTargetSection !== "settled"))
-                                }
-                                isDropTarget={dragTargetSection === "settled"}
+                                onClose={toggleSettledView}
                               />,
                             );
                             break;
@@ -4032,7 +3962,18 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       }
                       return items;
                     })()}
-                    {settledShelfExpanded && hiddenSettledCount > 0 ? (
+                    {!settledViewOpen && routeThreadRef ? (
+                      <li
+                        data-thread-selection-safe
+                        className={cn("mx-0.5 list-none", snoozedThreads.length === 0 && "mt-auto")}
+                      >
+                        <ThreadRelationshipsPanel
+                          environmentId={routeThreadRef.environmentId}
+                          threadId={routeThreadRef.threadId}
+                        />
+                      </li>
+                    ) : null}
+                    {settledViewOpen && hiddenSettledCount > 0 ? (
                       <li className="list-none">
                         <button
                           type="button"

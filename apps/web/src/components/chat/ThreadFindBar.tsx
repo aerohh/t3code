@@ -4,7 +4,6 @@ import { Button } from "../ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
 import { cn } from "~/lib/utils";
 import { formatThreadFindCount } from "./threadFind";
-import { THREAD_DETAILS_CARD_GAP } from "./threadDetailsCardLayout";
 
 interface ThreadFindBarProps {
   readonly open: boolean;
@@ -21,7 +20,7 @@ interface ThreadFindBarProps {
   readonly onClose: () => void;
 }
 
-export const THREAD_FIND_BAR_RESERVED_HEIGHT = 36 + THREAD_DETAILS_CARD_GAP;
+export const THREAD_FIND_BAR_RESERVED_HEIGHT = 36 + 12;
 
 export function ThreadFindBar(props: ThreadFindBarProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);

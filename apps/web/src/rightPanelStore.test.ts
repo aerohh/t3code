@@ -522,7 +522,6 @@ describe("rightPanelStore", () => {
           surfaces: [{ id: "browser:tab-a", kind: "preview", resourceId: "tab-a" }],
         },
       },
-      threadPanelVisibilityByThreadKey: {},
     });
   });
 
@@ -553,7 +552,6 @@ describe("rightPanelStore", () => {
           ],
         },
       },
-      threadPanelVisibilityByThreadKey: {},
     });
   });
 
@@ -597,7 +595,6 @@ describe("rightPanelStore", () => {
           ],
         },
       },
-      threadPanelVisibilityByThreadKey: {},
     });
   });
 
@@ -629,7 +626,6 @@ describe("rightPanelStore", () => {
       }),
     ).toEqual({
       byThreadKey: { "env-1:thread-A": panelState },
-      threadPanelVisibilityByThreadKey: {},
     });
   });
 
@@ -669,59 +665,38 @@ describe("rightPanelStore", () => {
           surfaces: [{ id: "diff", kind: "diff" }],
         },
       },
-      threadPanelVisibilityByThreadKey: {},
     });
   });
 
-  it("persists inline preference without restoring an open popover", () => {
+  it("drops the details card's old saved flags", () => {
     expect(
       migratePersistedRightPanelState({
         threadPanelVisibilityByThreadKey: {
           "env-1:thread-A": { inlineOpen: false, popoverOpen: true },
-          "env-1:thread-B": { inlineOpen: true, popoverOpen: true },
         },
       }),
-    ).toEqual({
-      byThreadKey: {},
-      threadPanelVisibilityByThreadKey: {
-        "env-1:thread-A": { inlineOpen: false, popoverOpen: false },
-      },
-    });
+    ).toEqual({ byThreadKey: {} });
   });
 
-  it("shows one card at a time in the details corner", () => {
+  it("keeps the side chat and the details menu independent", () => {
     const store = useRightPanelStore.getState();
-    store.setThreadPanelOpen(refA, "popover", true);
+    store.setThreadPanelOpen(refA, true);
     store.setSideChatCardOpen(refA, true);
 
     let visibility = useRightPanelStore.getState().threadPanelVisibilityByThreadKey;
     expect(selectSideChatCardOpen(visibility, refA)).toBe(true);
-    expect(selectThreadPanelOpen(visibility, refA, "inline")).toBe(false);
-    expect(selectThreadPanelOpen(visibility, refA, "popover")).toBe(false);
+    expect(selectThreadPanelOpen(visibility, refA)).toBe(true);
 
-    // The pinned details card comes back on its own once the side chat closes.
-    store.setSideChatCardOpen(refA, false);
+    store.setThreadPanelOpen(refA, false);
+    store.toggleThreadPanel(refA);
     visibility = useRightPanelStore.getState().threadPanelVisibilityByThreadKey;
-    expect(selectThreadPanelOpen(visibility, refA, "inline")).toBe(true);
-    expect(selectThreadPanelOpen(visibility, refA, "popover")).toBe(false);
-
-    // Toggling details while the side chat shows swaps the cards instead of hiding details.
-    store.setSideChatCardOpen(refA, true);
-    store.toggleThreadPanel(refA, "inline");
-    visibility = useRightPanelStore.getState().threadPanelVisibilityByThreadKey;
-    expect(selectSideChatCardOpen(visibility, refA)).toBe(false);
-    expect(selectThreadPanelOpen(visibility, refA, "inline")).toBe(true);
-
-    store.setSideChatCardOpen(refA, true);
-    store.setThreadPanelOpen(refA, "popover", true);
-    visibility = useRightPanelStore.getState().threadPanelVisibilityByThreadKey;
-    expect(selectSideChatCardOpen(visibility, refA)).toBe(false);
-    expect(selectThreadPanelOpen(visibility, refA, "popover")).toBe(true);
+    expect(selectSideChatCardOpen(visibility, refA)).toBe(true);
+    expect(selectThreadPanelOpen(visibility, refA)).toBe(true);
     expect(selectSideChatCardOpen(visibility, refB)).toBe(false);
   });
 
-  it("closes the popover atomically when the real right panel opens", () => {
-    useRightPanelStore.getState().setThreadPanelOpen(refA, "popover", true);
+  it("keeps the details open when the real right panel opens", () => {
+    useRightPanelStore.getState().setThreadPanelOpen(refA, true);
     useRightPanelStore.getState().open(refA, "diff");
 
     expect(
@@ -729,22 +704,7 @@ describe("rightPanelStore", () => {
         useRightPanelStore.getState().threadPanelVisibilityByThreadKey,
         refA,
       ),
-    ).toEqual({ inlineOpen: true, popoverOpen: false });
-  });
-
-  it("keeps an open popover visible by promoting it to inline when the real panel closes", () => {
-    const store = useRightPanelStore.getState();
-    store.open(refA, "diff");
-    store.setThreadPanelOpen(refA, "inline", false);
-    store.setThreadPanelOpen(refA, "popover", true);
-    store.close(refA);
-
-    expect(
-      selectThreadPanelVisibility(
-        useRightPanelStore.getState().threadPanelVisibilityByThreadKey,
-        refA,
-      ),
-    ).toEqual({ inlineOpen: true, popoverOpen: true });
+    ).toEqual({ detailsOpen: true });
   });
 
   it("opens workspace-root links as the singleton files explorer", () => {

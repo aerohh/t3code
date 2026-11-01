@@ -1,9 +1,10 @@
 import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
-import { ChevronRightIcon } from "lucide-react";
+import { ChevronRightIcon, XIcon } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { type ReactNode, useLayoutEffect } from "react";
+import { type ReactNode } from "react";
 import { cn } from "~/lib/utils";
+import { Button } from "../ui/button";
 import {
   animateSidebarLayoutChanges,
   sidebarMarkerId,
@@ -15,20 +16,13 @@ function SortableSidebarMarker(props: {
   marker: SidebarListMarker;
   className?: string;
   children?: ReactNode;
-  revealOverflow?: boolean;
   "data-testid"?: string;
 }) {
-  const { node, setNodeRef, transform, transition } = useSortable({
+  const { setNodeRef, transform, transition } = useSortable({
     id: sidebarMarkerId(props.marker),
     disabled: SIDEBAR_SORTABLE_DRAG_DISABLED,
     animateLayoutChanges: animateSidebarLayoutChanges,
   });
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the projected drop box inside the scroll viewport as drag transforms move it
-  useLayoutEffect(() => {
-    if (props.revealOverflow && transform?.y !== undefined) {
-      node.current?.firstElementChild?.scrollIntoView({ block: "nearest", inline: "nearest" });
-    }
-  }, [node, props.revealOverflow, transform?.y]);
   return (
     <li
       ref={setNodeRef}
@@ -47,7 +41,7 @@ function SortableSidebarMarker(props: {
 }
 
 export function SidebarSectionPlaceholder(props: {
-  marker: "active-placeholder" | "settled-placeholder";
+  marker: "active-placeholder";
   label: string;
   showHint: boolean;
   isDropTarget: boolean;
@@ -57,7 +51,6 @@ export function SidebarSectionPlaceholder(props: {
       marker={props.marker}
       data-testid={`sidebar-${props.marker}`}
       className="relative mx-0.5 -mb-px h-0"
-      revealOverflow={props.marker === "settled-placeholder" && props.showHint}
     >
       {props.showHint ? (
         <div
@@ -133,7 +126,7 @@ export function SidebarDragBoundary(props: {
 }
 
 export function SidebarSectionHeader(props: {
-  marker: "snoozed-header" | "settled-header";
+  marker: "snoozed-header";
   label: string;
   /** A muted trailing count. */
   count: number;
@@ -142,7 +135,6 @@ export function SidebarSectionHeader(props: {
   isDropTarget?: boolean;
   toggle: { expanded: boolean; onToggle: () => void };
 }) {
-  const shelf = props.marker === "snoozed-header" ? "snoozed" : "settled";
   return (
     <SortableSidebarMarker
       marker={props.marker}
@@ -152,15 +144,38 @@ export function SidebarSectionHeader(props: {
       <CollapsibleSectionHeader
         role="treeitem"
         tabIndex={-1}
-        data-sidebar-row={`shelf:${shelf}`}
+        data-sidebar-row="shelf:snoozed"
         onClick={props.toggle.onToggle}
         expanded={props.toggle.expanded}
         tone={props.isDropTarget ? "accent" : props.dragging ? "emphasized" : "muted"}
-        data-testid={`sidebar-${shelf}-shelf-toggle`}
+        data-testid="sidebar-snoozed-shelf-toggle"
         accessory={<span className="font-normal tabular-nums">{props.count}</span>}
       >
         {props.label}
       </CollapsibleSectionHeader>
+    </SortableSidebarMarker>
+  );
+}
+
+/** Tops the list while it shows only settled chats; the close button returns to the inbox. */
+export function SidebarSettledViewHeader(props: { count: number; onClose: () => void }) {
+  return (
+    <SortableSidebarMarker
+      marker="settled-header"
+      data-testid="sidebar-settled-header"
+      className="mx-0.5 flex h-8 items-center gap-2 px-2 text-xs font-medium text-sidebar-muted-foreground"
+    >
+      <span>Settled chats</span>
+      <span className="font-normal tabular-nums">{props.count}</span>
+      <span className="flex-1" />
+      <Button
+        size="icon-xs"
+        variant="ghost-muted"
+        aria-label="Back to chats"
+        onClick={props.onClose}
+      >
+        <XIcon />
+      </Button>
     </SortableSidebarMarker>
   );
 }

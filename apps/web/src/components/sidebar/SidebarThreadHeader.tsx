@@ -1,4 +1,4 @@
-import { FolderPlusIcon, SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
+import { CircleCheckIcon, SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
 import {
   type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -16,7 +16,8 @@ export interface SidebarThreadHeaderProps {
   searchFieldRef?: RefObject<HTMLDivElement | null>;
   hasProjects: boolean;
   projectScope: ReactNode;
-  onNewProject: () => void;
+  settledViewOpen: boolean;
+  onToggleSettledView: () => void;
   onNewThread: (event: ReactMouseEvent) => void;
   newThreadDisabled: boolean;
   newThreadShortcutLabel: string | null | undefined;
@@ -36,7 +37,8 @@ export function SidebarThreadHeader({
   searchFieldRef,
   hasProjects,
   projectScope,
-  onNewProject,
+  settledViewOpen,
+  onToggleSettledView,
   onNewThread,
   newThreadDisabled,
   newThreadShortcutLabel,
@@ -105,8 +107,12 @@ export function SidebarThreadHeader({
         {hasProjects ? (
           <>
             {projectScope}
-            <SidebarHeaderIconButton label="Add project" onClick={onNewProject}>
-              <FolderPlusIcon />
+            <SidebarHeaderIconButton
+              label={settledViewOpen ? "Back to chats" : "Show settled chats"}
+              active={settledViewOpen}
+              onClick={onToggleSettledView}
+            >
+              <CircleCheckIcon />
             </SidebarHeaderIconButton>
           </>
         ) : null}
@@ -138,12 +144,15 @@ export function SidebarThreadHeader({
 export function SidebarHeaderIconButton({
   label,
   tooltip = label,
+  active,
   className,
   children,
   ...rest
 }: {
   label: string;
   tooltip?: ReactNode;
+  /** Marks a header toggle as on. */
+  active?: boolean;
   className?: string | undefined;
   children?: ReactNode;
 } & Omit<
@@ -158,6 +167,7 @@ export function SidebarHeaderIconButton({
             size="icon"
             type="button"
             aria-label={label}
+            {...(active === undefined ? {} : { isActive: active, "aria-pressed": active })}
             {...rest}
             className={cn("relative size-7 shrink-0", className)}
           />

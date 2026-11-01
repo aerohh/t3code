@@ -523,7 +523,7 @@ export function SortableThreadRow(
   return <SidebarThreadRow key={rowProps.variant} {...rowProps} thread={thread} sortable={bag} />;
 }
 export type SidebarSweepAction = "settle" | "unsettle" | "unsnooze";
-const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
+const dropVerbBadge: Record<SidebarDropVerb | "settle" | "unsettle", ReactNode> = {
   pin: (
     <>
       <PinIcon aria-hidden className="size-3" />
@@ -583,6 +583,8 @@ type SidebarThreadRowProps = {
   snoozeSupported: boolean;
   pinningSupported: boolean;
   isPinned: boolean;
+  /** A settled chat that stays in the list only while it's open. */
+  settledWhileOpen?: boolean | undefined;
   /** Set on rows drawn inside a tag box: which slice of the box they draw. */
   tagBoxPart?: "middle" | "last" | "alone" | undefined;
   sortable?: SortableThreadRowBag | undefined;
@@ -1256,6 +1258,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_36px]",
           metaLine !== null && multiline && "[contain-intrinsic-size:auto_54px]",
           props.tagBoxPart && sidebarTagBoxPartClassName(props.tagBoxPart, "slim"),
+          props.settledWhileOpen &&
+            "mx-0.5 mb-4 rounded-lg border-2 border-dashed border-sidebar-foreground/25 opacity-60 transition-opacity hover:opacity-100 focus-within:opacity-100",
           sortable?.isDragging && "relative z-20",
         )}
       >

@@ -72,7 +72,7 @@ export function PullRequestChangeBreakdownStat({
 
 /**
  * The split shown inline, for surfaces that already sit behind a hover, such as the thread
- * details card. It reads on mount, so it costs the host a request only once the card opens.
+ * details. It reads on mount, so it costs the host a request only once they open.
  */
 export function PullRequestChangeBreakdownRows({
   environmentId,

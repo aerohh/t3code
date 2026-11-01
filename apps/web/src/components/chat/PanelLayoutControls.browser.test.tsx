@@ -27,14 +27,10 @@ const controlsFor = (thread: ScopedThreadRef) => (
     terminalAvailable
     terminalOpen={false}
     terminalShortcutLabel={null}
-    threadPanelOpen={false}
-    threadPanelPresentation="inline"
-    threadPanelShortcutLabel={null}
     rightPanelAvailable
     rightPanelOpen={false}
     rightPanelShortcutLabel={null}
     onToggleTerminal={() => {}}
-    onToggleThreadPanel={() => {}}
     onToggleRightPanel={() => {}}
   />
 );

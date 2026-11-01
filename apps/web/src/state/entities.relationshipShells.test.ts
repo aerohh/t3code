@@ -4,7 +4,7 @@ import type {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { selectThreadRelationshipShells } from "./entities";
+import { selectThreadRelationshipShells, threadLineageNeedsArchive } from "./entities";
 
 type Projection = Parameters<typeof selectThreadRelationshipShells>[1];
 
@@ -63,5 +63,15 @@ describe("selectThreadRelationshipShells", () => {
         (thread) => thread.id,
       ),
     ).toEqual(["current", "parent"]);
+  });
+});
+
+describe("threadLineageNeedsArchive", () => {
+  it("loads the archive only when the chat or its parent is not live", () => {
+    const current = shell("current", "parent");
+    expect(threadLineageNeedsArchive(threadId, null, [current, shell("parent")])).toBe(false);
+    expect(threadLineageNeedsArchive(threadId, null, [shell("current")])).toBe(false);
+    expect(threadLineageNeedsArchive(threadId, null, [current])).toBe(true);
+    expect(threadLineageNeedsArchive(threadId, null, [])).toBe(true);
   });
 });
