@@ -218,8 +218,12 @@ export const layer: Layer.Layer<
       "thread.provider-switched",
       "thread.guest-share-updated",
     ];
-    // Read-state events preserve updatedAt and supersede only each other. Activity events supersede both groups.
-    const READ_STATE_THREAD_EVENT_TYPES = ["thread.visited", "thread.marked-unread"];
+    // Read-state and summary events preserve updatedAt and supersede only each other. Activity events supersede both groups.
+    const READ_STATE_THREAD_EVENT_TYPES = [
+      "thread.visited",
+      "thread.marked-unread",
+      "thread.summary-set",
+    ];
 
     const supersedableThreadEventTypes = new Set(SUPERSEDABLE_THREAD_EVENT_TYPES);
     const readStateThreadEventTypes = new Set(READ_STATE_THREAD_EVENT_TYPES);

@@ -22,11 +22,13 @@ import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
+  buildThreadSummaryPrompt,
   buildThreadTitlePrompt,
 } from "@t3tools/provider-core/server/textGenerationPrompts";
 import {
   sanitizeCommitSubject,
   sanitizePrTitle,
+  sanitizeThreadSummary,
   sanitizeThreadTitle,
   toJsonSchemaObject,
 } from "@t3tools/provider-core/server/textGenerationUtils";
@@ -342,11 +344,22 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
   });
   const generateReviewGuide: ProviderTextGeneration["generateReviewGuide"] = () =>
     Effect.fail(investigationUnsupported("generateReviewGuide", "Muse Code"));
+  const generateThreadSummary: ProviderTextGeneration["generateThreadSummary"] = Effect.fn(
+    "MuseTextGeneration.generateThreadSummary",
+  )(function* (input) {
+    const generated = yield* runMuseJson({
+      operation: "generateThreadSummary",
+      ...buildThreadSummaryPrompt(input),
+      modelSelection: input.modelSelection,
+    });
+    return sanitizeThreadSummary(generated);
+  });
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
     generateReviewGuide,
+    generateThreadSummary,
   } satisfies ProviderTextGeneration;
 });

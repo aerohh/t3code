@@ -23,6 +23,30 @@ export function limitSection(value: string, maxChars: number): string {
   return `${truncated}\n\n[truncated]`;
 }
 
+function clipSummaryText(value: string, maxChars: number): string {
+  const singleSpaced = value.replaceAll(/\s+/g, " ").trim();
+  return singleSpaced.length <= maxChars
+    ? singleSpaced
+    : `${singleSpaced.slice(0, maxChars - 1).trimEnd()}…`;
+}
+
+/** Fits a model's note into the stored summary's limits instead of rejecting it. */
+export function sanitizeThreadSummary(raw: {
+  readonly about: string;
+  readonly verdict: string;
+  readonly stillOpen: ReadonlyArray<string>;
+}) {
+  return {
+    about: clipSummaryText(raw.about, 600),
+    verdict: clipSummaryText(raw.verdict, 400),
+    stillOpen: [
+      ...new Set(
+        raw.stillOpen.map((item) => clipSummaryText(item, 200)).filter((item) => item.length > 0),
+      ),
+    ].slice(0, 6),
+  };
+}
+
 export function sanitizeCommitSubject(raw: string): string {
   const singleLine = raw.trim().split(/\r?\n/g)[0]?.trim() ?? "";
   const withoutTrailingPeriod = singleLine.replace(/[.]+$/g, "").trim();

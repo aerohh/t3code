@@ -4,7 +4,7 @@ import { limitTitleMessage } from "./threadTitleContext.ts";
 import type { BranchNamingOptions, ChatAttachment } from "@t3tools/contracts";
 
 import { limitSection } from "./textGenerationUtils.ts";
-import type { ReviewGuideStackLayer } from "./textGeneration.ts";
+import type { ReviewGuideStackLayer, ThreadSummaryGenerationInput } from "./textGeneration.ts";
 import type { TextGenerationPolicy } from "@t3tools/provider-core/server/textGenerationPolicy";
 
 const EARLIER_CONTENT_TRUNCATION_MARKER = "[Earlier content truncated]\n\n";
@@ -480,5 +480,50 @@ export function buildThreadTitlePrompt(input: ThreadTitlePromptInput) {
     needsRefinement: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   });
 
+  return { prompt, outputSchema };
+}
+
+// Keeps the reply's opening and, mostly, its end, where the outcome usually is.
+function limitReplyForSummary(reply: string): string {
+  if (reply.length <= 12_000) return reply;
+  return `${reply.slice(0, 3_000)}\n\n[middle of the reply left out]\n\n${reply.slice(-9_000)}`;
+}
+
+export function buildThreadSummaryPrompt(
+  input: Pick<
+    ThreadSummaryGenerationInput,
+    "title" | "firstUserMessage" | "previousSummary" | "latestUserMessage" | "latestReply"
+  >,
+) {
+  const prompt = [
+    "You keep a short status note for a T3 Code chat between a user and a coding agent.",
+    "The user reads it to see where the chat stands without scrolling back.",
+    "You only see the chat's title, its first user message, the previous note, and the newest exchange. Carry forward anything from the previous note that is still true, and update it with what the newest exchange changed.",
+    "Return JSON with keys about, verdict and stillOpen.",
+    "- about: what the chat is for and what has happened so far. 1-3 short sentences, at most 600 characters.",
+    "- verdict: where things stand right now, after the newest reply. 1-2 short sentences, at most 400 characters.",
+    "- stillOpen: each unresolved item or decision waiting on the user, at most 6 items of one short sentence each. An empty array when nothing is open.",
+    "Write for someone new to the subject: plain everyday words, no file names, no function names, no code.",
+    "Only state what the messages show. Do not claim work is done, tested or committed unless the reply says so.",
+    "",
+    `Chat title: ${input.title}`,
+    "",
+    "First user message:",
+    limitSection(input.firstUserMessage, 2_000),
+    "",
+    "Previous note:",
+    input.previousSummary === null ? "(none yet)" : JSON.stringify(input.previousSummary),
+    "",
+    "Newest user message:",
+    limitSection(input.latestUserMessage, 4_000),
+    "",
+    "Newest agent reply:",
+    limitReplyForSummary(input.latestReply),
+  ].join("\n");
+  const outputSchema = Schema.Struct({
+    about: Schema.String,
+    verdict: Schema.String,
+    stillOpen: Schema.Array(Schema.String),
+  });
   return { prompt, outputSchema };
 }

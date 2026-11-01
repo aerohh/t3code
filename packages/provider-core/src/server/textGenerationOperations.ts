@@ -11,11 +11,13 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildReviewGuidePrompt,
+  buildThreadSummaryPrompt,
   buildThreadTitlePrompt,
 } from "./textGenerationPrompts.ts";
 import {
   sanitizeCommitSubject,
   sanitizePrTitle,
+  sanitizeThreadSummary,
   sanitizeThreadTitle,
 } from "./textGenerationUtils.ts";
 
@@ -167,11 +169,24 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     });
   });
 
+  const generateThreadSummary: ProviderTextGeneration["generateThreadSummary"] = Effect.fn(
+    `${name}.generateThreadSummary`,
+  )(function* (input) {
+    const generated = yield* run({
+      operation: "generateThreadSummary",
+      cwd: input.cwd,
+      modelSelection: input.modelSelection,
+      ...buildThreadSummaryPrompt(input),
+    });
+    return sanitizeThreadSummary(generated);
+  });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
     generateReviewGuide,
+    generateThreadSummary,
   } satisfies ProviderTextGeneration;
 }

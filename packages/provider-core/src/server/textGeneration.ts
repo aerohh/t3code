@@ -92,6 +92,22 @@ export interface ReviewGuideGenerationInput {
   modelSelection: ModelSelection;
 }
 
+export interface ThreadSummaryGenerationInput {
+  cwd: string;
+  title: string;
+  firstUserMessage: string;
+  previousSummary: ThreadSummaryGenerationResult | null;
+  latestUserMessage: string;
+  latestReply: string;
+  modelSelection: ModelSelection;
+}
+
+export interface ThreadSummaryGenerationResult {
+  about: string;
+  verdict: string;
+  stillOpen: ReadonlyArray<string>;
+}
+
 export type ReviewGuideGenerationResult = Omit<
   PullRequestReviewGuide,
   "headSha" | "generatedAt" | "modelSelection"
@@ -117,4 +133,8 @@ export interface ProviderTextGeneration {
   readonly generateReviewGuide: (
     input: ReviewGuideGenerationInput,
   ) => Effect.Effect<ReviewGuideGenerationResult, TextGenerationError>;
+
+  readonly generateThreadSummary: (
+    input: ThreadSummaryGenerationInput,
+  ) => Effect.Effect<ThreadSummaryGenerationResult, TextGenerationError>;
 }

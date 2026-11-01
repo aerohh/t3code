@@ -111,6 +111,7 @@ function shouldPublishAgentAwarenessEvent(
     case "thread.unsnoozed":
     case "thread.auto-settle-set":
     case "thread.tag-set":
+    case "thread.summary-set":
     case "thread.pinned":
     case "thread.unpinned":
     case "thread.pin-reordered":
