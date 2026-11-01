@@ -178,6 +178,18 @@ it.effect("starts a fork without the source thread's pending title regeneration"
   }),
 );
 
+it.effect("does not copy the side chat mark onto a fork", () =>
+  Effect.gen(function* () {
+    const sourceRun = makeSourceRun("completed");
+    const result = yield* planFork(sourceRun, {
+      ...makeSourceProjection(sourceRun),
+      thread: { ...makeSourceThread(), sideChat: {} },
+    });
+
+    assert.isUndefined(result.targetThread.sideChat);
+  }),
+);
+
 it.effect("preserves pull request context without inheriting any watches", () =>
   Effect.gen(function* () {
     const sourceRun = makeSourceRun("completed");

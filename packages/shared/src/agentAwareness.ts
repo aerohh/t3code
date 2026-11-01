@@ -1,5 +1,6 @@
 import {
   isListedThreadLineage,
+  isSideChatThread,
   type EnvironmentId,
   type OrchestrationV2ThreadShell,
   type Project,
@@ -51,6 +52,7 @@ export interface ProjectThreadAwarenessV2Input {
     | "pendingBackgroundTasks"
     | "pendingRuntimeRequest"
     | "settledOverride"
+    | "sideChat"
     | "status"
     | "title"
     | "updatedAt"
@@ -61,7 +63,7 @@ export function projectThreadAwarenessV2(
   input: ProjectThreadAwarenessV2Input,
 ): AgentAwarenessState | null {
   const { environmentId, project, thread } = input;
-  if (!isListedThreadLineage(thread.lineage)) return null;
+  if (!isListedThreadLineage(thread.lineage) || isSideChatThread(thread)) return null;
   const phase = resolveThreadAwarenessPhaseV2(thread);
   if (phase === null) {
     return null;

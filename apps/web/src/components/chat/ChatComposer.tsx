@@ -488,6 +488,8 @@ export interface ChatComposerProps {
   toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
   handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
+  /** The side chat's box: no access or plan controls, which a side chat ignores. */
+  inSideChatCard?: boolean;
 
   focusComposer: () => void;
   scheduleComposerFocus: () => void;
@@ -585,6 +587,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     getModelDisabledReason,
     toggleInteractionMode,
     handleRuntimeModeChange,
+    inSideChatCard = false,
     handleInteractionModeChange,
     focusComposer,
     scheduleComposerFocus,
@@ -2300,6 +2303,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       restingHiddenBlockCount={restingHiddenBlockCount}
       iconOnlyBlockCount={iconOnlyBlockCount}
       showProviderUnavailable={showProviderUnavailable}
+      inSideChatCard={inSideChatCard}
       providerSetupInstanceId={providerSetupInstanceId}
       onOpenProviderSetup={onOpenProviderSetup}
       providerCatalogPending={providerCatalogPending}

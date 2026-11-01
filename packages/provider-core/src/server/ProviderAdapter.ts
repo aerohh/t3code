@@ -16,6 +16,7 @@ import {
   OrchestrationV2ProviderThread,
   OrchestrationV2ProviderTurn,
   OrchestrationV2RuntimeRequest,
+  OrchestrationV2SideChat,
   OrchestrationV2Subagent,
   OrchestrationV2TurnItem,
   ProviderApprovalDecision,
@@ -51,6 +52,8 @@ export const ProviderAdapterV2RuntimePolicy = Schema.Struct({
   cwd: Schema.NullOr(Schema.String),
   approvalPolicy: Schema.optional(Schema.Unknown),
   sandboxPolicy: Schema.optional(Schema.Unknown),
+  /** Set for a side chat; only the Claude adapter runs side chats. */
+  sideChat: Schema.optional(OrchestrationV2SideChat),
 });
 export type ProviderAdapterV2RuntimePolicy = typeof ProviderAdapterV2RuntimePolicy.Type;
 

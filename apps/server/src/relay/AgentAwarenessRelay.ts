@@ -1,5 +1,6 @@
 import {
   isListedThreadLineage,
+  isSideChatThread,
   type EnvironmentId,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ThreadShell,
@@ -515,7 +516,7 @@ export const make = Effect.gen(function* () {
     const threadShell = yield* threads.getThreadShell(threadId);
     if (
       threadShell !== null &&
-      !isListedThreadLineage(threadShell.lineage) &&
+      (!isListedThreadLineage(threadShell.lineage) || isSideChatThread(threadShell)) &&
       !(yield* Ref.get(publishedStateByThreadRef)).has(threadId)
     ) {
       // Subagents have no relay rows to clear; per-event tombstones would needlessly redeliver user aggregates.

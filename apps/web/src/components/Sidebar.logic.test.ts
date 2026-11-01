@@ -9,6 +9,7 @@ import {
   shouldCreateNewThreadInCurrentProject,
   archiveSelectedThreadEntries,
   deleteSelectedThreadEntries,
+  filterSidebarV2VisibleThreads,
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
   resolveSidebarRowThreadId,
@@ -216,6 +217,27 @@ describe("sidebar thread lineage helpers", () => {
     const loopA = subagentOf("thread-loop-a", ThreadId.make("thread-loop-b"));
     const loopB = subagentOf("thread-loop-b", loopA.id);
     expect(resolveSidebarRowThreadId(loopA.id, environmentId, [loopA, loopB])).toBe(loopA.id);
+  });
+
+  it("hides side chats but keeps ordinary forks of the same chat", () => {
+    const parent = makeThreadFixture({ id: ThreadId.make("thread-parent") });
+    const forkLineage = {
+      rootThreadId: parent.id,
+      parentThreadId: parent.id,
+      relationshipToParent: "fork" as const,
+    };
+    const fork = makeThreadFixture({ id: ThreadId.make("thread-fork"), lineage: forkLineage });
+    const sideChat = makeThreadFixture({
+      id: ThreadId.make("thread-side-chat"),
+      lineage: forkLineage,
+      sideChat: {},
+    });
+
+    expect(
+      filterSidebarV2VisibleThreads([parent, fork, sideChat], null, new Set()).map(
+        (thread) => thread.id,
+      ),
+    ).toEqual([parent.id, fork.id]);
   });
 });
 

@@ -24,6 +24,7 @@ import {
   type EnvironmentMachineKind,
   type FilesystemBrowseEntry,
   type KeybindingCommand,
+  isSideChatThread,
   type SourceControlDiscoveryResult,
   type SourceControlRepositoryInfo,
   THREAD_JUMP_KEYBINDING_COMMANDS,
@@ -417,7 +418,12 @@ export type BuildThreadActionItemsThread = Pick<
   Partial<
     Pick<
       SidebarThreadSummary,
-      "pullRequests" | "linkedPullRequest" | "branchPullRequest" | "opens" | "latestUserMessageAt"
+      | "pullRequests"
+      | "linkedPullRequest"
+      | "branchPullRequest"
+      | "opens"
+      | "latestUserMessageAt"
+      | "sideChat"
     >
   > & {
     updatedAt: string;
@@ -437,7 +443,8 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
 }): CommandPaletteActionItem[] {
   // Callers order these: recents by last use, search results by rank.
   const visibleThreads = input.threads.filter(
-    (thread) => thread.archivedAt === null && !isSidebarSubagentThread(thread),
+    (thread) =>
+      thread.archivedAt === null && !isSidebarSubagentThread(thread) && !isSideChatThread(thread),
   );
 
   return visibleThreads.map((thread) => {

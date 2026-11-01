@@ -30,6 +30,7 @@ import {
   forkThreadFromRun,
   markThreadUnread,
   mergeThreadBack,
+  openSideChat,
   promoteQueuedRun,
   resumeThreadQueue,
   retryWorkspacePreparation,
@@ -315,6 +316,15 @@ export function createThreadEnvironmentAtoms<R, E>(
         mode: "serial",
         key: ({ environmentId, input }) =>
           JSON.stringify([environmentId, input.sourceThreadId, input.targetThreadId]),
+      },
+    }),
+    openSideChat: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:open-side-chat",
+      execute: openSideChat,
+      scheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.parentThreadId]),
       },
     }),
     resumeThreadQueue: createEnvironmentCommand(runtime, {
