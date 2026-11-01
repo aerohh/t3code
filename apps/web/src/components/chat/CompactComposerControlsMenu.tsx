@@ -1,5 +1,5 @@
 import { ProviderInteractionMode, RuntimeMode } from "@t3tools/contracts";
-import { memo, useRef } from "react";
+import { memo, type ReactNode } from "react";
 import { EllipsisIcon } from "lucide-react";
 import {
   Menu,
@@ -10,16 +10,18 @@ import {
   MenuTrigger,
 } from "../ui/menu";
 import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
-import { focusRequestedPermission, useComposerMenuProps } from "./composerEventScope";
+import { useComposerMenuProps } from "./composerEventScope";
 import { useComposerMenuState } from "./useComposerMenuState";
-import { ComposerPermissionsSection, type RuntimeModeOption } from "./ComposerFooterControls";
 
 export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
-  runtimeModeOptions: ReadonlyArray<RuntimeModeOption>;
+  runtimeModeOptions: ReadonlyArray<{
+    readonly mode: RuntimeMode;
+    readonly label: string;
+  }>;
   showInteractionModeToggle: boolean;
-  showPermissions?: boolean;
+  traitsMenuContent?: ReactNode;
   size?: "sm" | "xs";
   /** Close the portaled popup when its trigger hides. */
   hidden?: boolean;
@@ -29,28 +31,30 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   const composerFloatingLayerProps = useComposerMenuProps();
   const size = props.size ?? "sm";
   const [open, setOpen] = useComposerMenuState(props.hidden);
-  const triggerRef = useRef<HTMLButtonElement>(null);
 
   return (
-    <Menu
-      open={open}
-      onOpenChange={setOpen}
-      onOpenChangeComplete={(isOpen) => focusRequestedPermission(isOpen, triggerRef.current)}
-    >
+    <Menu open={open} onOpenChange={setOpen}>
       <MenuTrigger
         render={
           <ComposerControl
-            ref={triggerRef}
             size={size}
             className="shrink-0"
             aria-label="More composer controls"
-            data-composer-shortcut={props.showPermissions !== false ? "composer.mode" : undefined}
+            data-composer-shortcut={
+              props.traitsMenuContent ? "composer.mode composer.effort" : "composer.mode"
+            }
           />
         }
       >
         <ComposerControlIcon icon={EllipsisIcon} size={size} />
       </MenuTrigger>
       <MenuPopup align="start" {...composerFloatingLayerProps}>
+        {props.traitsMenuContent ? (
+          <>
+            {props.traitsMenuContent}
+            <MenuDivider />
+          </>
+        ) : null}
         {props.showInteractionModeToggle ? (
           <>
             <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Mode</div>
@@ -64,16 +68,23 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
               <MenuRadioItem value="default">Chat</MenuRadioItem>
               <MenuRadioItem value="plan">Plan</MenuRadioItem>
             </MenuRadioGroup>
-            {props.showPermissions !== false ? <MenuDivider /> : null}
+            <MenuDivider />
           </>
         ) : null}
-        {props.showPermissions === false ? null : (
-          <ComposerPermissionsSection
-            runtimeMode={props.runtimeMode}
-            runtimeModeOptions={props.runtimeModeOptions}
-            onRuntimeModeChange={props.onRuntimeModeChange}
-          />
-        )}
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Access</div>
+        <MenuRadioGroup
+          value={props.runtimeMode}
+          onValueChange={(value) => {
+            if (!value || value === props.runtimeMode) return;
+            props.onRuntimeModeChange(value as RuntimeMode);
+          }}
+        >
+          {props.runtimeModeOptions.map((option) => (
+            <MenuRadioItem key={option.mode} value={option.mode}>
+              {option.label}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
       </MenuPopup>
     </Menu>
   );

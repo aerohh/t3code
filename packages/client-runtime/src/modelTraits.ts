@@ -4,6 +4,7 @@ import type {
   ProviderOptionDescriptor,
 } from "@t3tools/contracts";
 import {
+  applyClaudePromptEffortPrefix,
   buildProviderOptionSelectionsFromDescriptors,
   getProviderOptionCurrentLabel,
   getProviderOptionCurrentValue,
@@ -11,7 +12,9 @@ import {
 } from "@t3tools/shared/model";
 import { REASONING_EFFORT_OPTION_IDS } from "./state/threadExecution.ts";
 
-const REASONING_DESCRIPTOR_IDS: ReadonlySet<string> = new Set([
+export const ULTRATHINK_PROMPT_PREFIX = "Ultrathink:\n";
+
+export const REASONING_SELECT_DESCRIPTOR_IDS: ReadonlySet<string> = new Set([
   ...REASONING_EFFORT_OPTION_IDS,
   "thinking",
 ]);
@@ -20,11 +23,11 @@ const REASONING_DESCRIPTOR_IDS: ReadonlySet<string> = new Set([
 export function isReasoningControl(descriptor: ProviderOptionDescriptor): boolean {
   return (
     (descriptor.type === "select" && descriptor.role === "reasoning") ||
-    REASONING_DESCRIPTOR_IDS.has(descriptor.id)
+    REASONING_SELECT_DESCRIPTOR_IDS.has(descriptor.id)
   );
 }
 
-export function isReasoningSelect(
+function isReasoningSelect(
   descriptor: ProviderOptionDescriptor,
 ): descriptor is Extract<ProviderOptionDescriptor, { type: "select" }> {
   return descriptor.type === "select" && isReasoningControl(descriptor);
@@ -62,13 +65,10 @@ export function getDescriptorStringValue(
   return typeof value === "string" ? value : null;
 }
 
-// Prompt-injected levels such as Ultrathink still work when typed, but pickers do not offer them.
 export function selectableProviderOptionChoices(
   descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
 ) {
-  return descriptor.options.filter(
-    (option) => !descriptor.promptInjectedValues?.includes(option.id),
-  );
+  return descriptor.options;
 }
 
 export function getPromptControlledTraits(
@@ -95,7 +95,15 @@ export function getTraitSelectChange(
   prompt: string,
   value: string,
 ) {
-  if (!value || descriptor.promptInjectedValues?.includes(value)) return null;
+  if (!value) return null;
+  if (descriptor.promptInjectedValues?.includes(value)) {
+    return {
+      prompt:
+        prompt.trim().length === 0
+          ? ULTRATHINK_PROMPT_PREFIX
+          : applyClaudePromptEffortPrefix(prompt, "ultrathink"),
+    };
+  }
   const isPrimary = descriptor.id === selected.primarySelectDescriptor?.id;
   if (isPrimary && selected.ultrathinkInBodyText) return null;
   return {
@@ -116,11 +124,7 @@ export function buildTraitsTriggerDisplay(input: {
   ultrathinkPromptControlled: boolean;
   modelSelection?: ModelSelection | null;
   reportedModelSelection?: ModelSelection | null | undefined;
-}): {
-  label: string;
-  /** "Fast" or "Ultrafast" when a speed option is on. */
-  speedLabel: string | null;
-} {
+}): { label: string } {
   let fastModeFallbackLabel: string | null = null;
   let speedLabel: string | null = null;
   let reasoningLabelIndex = -1;
@@ -174,7 +178,7 @@ export function buildTraitsTriggerDisplay(input: {
   }
 
   if (labels.length === 0 && fastModeFallbackLabel !== null) {
-    return { label: fastModeFallbackLabel, speedLabel };
+    return { label: fastModeFallbackLabel };
   }
   if (speedLabel) {
     if (reasoningLabelIndex >= 0) {
@@ -183,5 +187,5 @@ export function buildTraitsTriggerDisplay(input: {
       labels.push(speedLabel);
     }
   }
-  return { label: labels.join(" · "), speedLabel };
+  return { label: labels.join(" · ") };
 }
