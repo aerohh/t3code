@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   htmlRenderFrameHeight,
+  htmlRenderReaderFrameHeight,
   injectHtmlRenderBootstrap,
   readHtmlRenderImageRequest,
   readHtmlRenderLinkRequest,
@@ -145,5 +146,20 @@ describe("htmlRenderFrameHeight", () => {
   it("fits the live page when the agent asked for the page's full height", () => {
     expect(htmlRenderFrameHeight({ ...measured, height: 1403 }, 728, 1415)).toBe(1415);
     expect(htmlRenderFrameHeight({ ...measured, height: 1403 }, 728, 5000)).toBe(5000);
+  });
+});
+
+describe("htmlRenderReaderFrameHeight", () => {
+  const measured = { ...reference, heights: [[728, 1403]] as const };
+
+  it("caps a long page at the reader's height whatever the agent asked for", () => {
+    expect(htmlRenderReaderFrameHeight({ ...measured, height: 1403 }, 728, 900, 1415)).toBe(900);
+    expect(htmlRenderReaderFrameHeight({ ...measured, height: 300 }, 728, 900, 1415)).toBe(900);
+    expect(htmlRenderReaderFrameHeight({ ...measured, height: 300 }, 728, 900)).toBe(900);
+  });
+
+  it("fits a page shorter than the reader's height", () => {
+    expect(htmlRenderReaderFrameHeight({ ...measured, height: 300 }, 728, 1600, 1415)).toBe(1415);
+    expect(htmlRenderReaderFrameHeight(reference, 728, 600, 20)).toBe(80);
   });
 });

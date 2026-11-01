@@ -2,14 +2,15 @@ import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import {
   HTML_RENDER_COLUMN_WIDTH,
   htmlRenderFileName,
-  htmlRenderFrameHeight,
+  htmlRenderReaderFrameHeight,
   type HtmlRenderReference,
 } from "@t3tools/shared/htmlRender";
-import { Maximize2Icon } from "lucide-react";
+import { AppWindowIcon, Maximize2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useAssetUrlRefresh } from "~/assets/assetUrls";
 import { useLongLivedAssetUrl } from "~/assets/longLivedAssetUrls";
+import { useClientSettings } from "~/hooks/useSettings";
 
 import { HtmlRenderDocument } from "../files/BrowserDocumentFrame";
 import { Button } from "../ui/button";
@@ -36,7 +37,13 @@ export function HtmlRenderFrame(props: {
   };
   // Client fonts can exceed the server-measured height and cause nested scrolling.
   const [contentHeight, setContentHeight] = useState<number>();
-  const height = htmlRenderFrameHeight(props.htmlRender, width, contentHeight);
+  const readerMaxHeight = useClientSettings((settings) => settings.htmlRenderMaxHeight);
+  const height = htmlRenderReaderFrameHeight(
+    props.htmlRender,
+    width,
+    readerMaxHeight,
+    contentHeight,
+  );
   const fileName = htmlRenderFileName(title);
   const resource = {
     _tag: "attachment" as const,
@@ -66,61 +73,71 @@ export function HtmlRenderFrame(props: {
     return () => onFullscreenChange?.(false);
   }, [expanded, onFullscreenChange]);
 
+  const openFullScreen = async () => {
+    if (loaded === null) return;
+    const url =
+      loaded.expiresAt - Date.now() > MIN_URL_LIFE_MS
+        ? loaded.src
+        : await refresh().catch(() => null);
+    if (url !== null) setExpandedSrc(url);
+    else
+      toastManager.add({
+        type: "error",
+        title: "Page unavailable",
+        description: "Reconnect to the environment and try again.",
+      });
+  };
+
   return (
-    <div ref={observeBox} className="group/html-render relative" style={{ height }}>
-      {src !== null ? (
-        <>
-          <HtmlRenderDocument
-            src={src}
-            title={title}
-            threadRef={props.threadRef}
-            className="block size-full"
-            onContentHeight={setContentHeight}
-            onFullscreenChange={onFullscreenChange}
-          />
-          <div className="absolute end-2 top-2 flex gap-1 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover/html-render:opacity-100 pointer-coarse:opacity-100">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    aria-label="Open full screen"
-                    size="icon-xs"
-                    variant="glass"
-                    onClick={async () => {
-                      const url =
-                        loaded !== null && loaded.expiresAt - Date.now() > MIN_URL_LIFE_MS
-                          ? src
-                          : await refresh().catch(() => null);
-                      if (url !== null) setExpandedSrc(url);
-                      else
-                        toastManager.add({
-                          type: "error",
-                          title: "Page unavailable",
-                          description: "Reconnect to the environment and try again.",
-                        });
-                    }}
-                  />
-                }
-              >
-                <Maximize2Icon className="size-3.5" />
-              </TooltipTrigger>
-              <TooltipPopup side="left">Open full screen</TooltipPopup>
-            </Tooltip>
-          </div>
-          {expandedSrc !== null ? (
-            <HtmlRenderDialog
-              src={expandedSrc}
+    <div className="my-1.5 overflow-hidden rounded-2xl border border-border/70 bg-card shadow-lg shadow-black/10 dark:border-white/10 dark:shadow-black/40">
+      <div className="flex h-9 items-center gap-2 border-b border-border/60 pr-1.5 pl-3.5">
+        <AppWindowIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate text-muted-foreground text-xs font-medium">
+          {title}
+        </span>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                aria-label="Open full screen"
+                size="icon-xs"
+                variant="ghost"
+                disabled={src === null}
+                onClick={openFullScreen}
+              />
+            }
+          >
+            <Maximize2Icon className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipPopup side="left">Open full screen</TooltipPopup>
+        </Tooltip>
+      </div>
+      <div ref={observeBox} className="relative" style={{ height }}>
+        {src !== null ? (
+          <>
+            <HtmlRenderDocument
+              src={src}
               title={title}
               threadRef={props.threadRef}
-              onClose={() => setExpandedSrc(null)}
+              className="block size-full"
+              onContentHeight={setContentHeight}
+              onFullscreenChange={onFullscreenChange}
             />
-          ) : null}
-        </>
-      ) : failed ? (
-        <p className="flex size-full items-center justify-center text-muted-foreground text-xs">
-          Unable to load {title}
-        </p>
-      ) : null}
+            {expandedSrc !== null ? (
+              <HtmlRenderDialog
+                src={expandedSrc}
+                title={title}
+                threadRef={props.threadRef}
+                onClose={() => setExpandedSrc(null)}
+              />
+            ) : null}
+          </>
+        ) : failed ? (
+          <p className="flex size-full items-center justify-center text-muted-foreground text-xs">
+            Unable to load {title}
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }
