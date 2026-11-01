@@ -191,6 +191,7 @@ import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
 import * as MessageBookmarks from "./orchestration-v2/MessageBookmarks.ts";
 import * as ScreenGallery from "./orchestration-v2/ScreenGallery.ts";
+import * as ThreadAttachments from "./orchestration-v2/ThreadAttachments.ts";
 import * as ThreadSettlementService from "./orchestration-v2/ThreadSettlementService.ts";
 import * as IdleCompactionService from "./orchestration-v2/IdleCompactionService.ts";
 import * as ThreadSummaryService from "./orchestration-v2/ThreadSummaryService.ts";
@@ -652,6 +653,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       ),
     ),
   ),
+  Layer.provideMerge(ThreadAttachments.layer.pipe(Layer.provide(ProjectionStoreV2.layer))),
   Layer.provideMerge(layerOrchestrationApplication),
   Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
   Layer.provideMerge(Layer.merge(ProjectStore.layer, ThreadSearch.layer)),

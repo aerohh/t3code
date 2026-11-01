@@ -434,6 +434,10 @@ export interface ProjectionStoreV2Shape {
   readonly getThreadAttachmentIds: (
     threadId: ThreadId,
   ) => Effect.Effect<ReadonlyArray<string>, ProjectionStoreV2Error>;
+  /** Oldest first, including messages a fork inherits from its source thread. */
+  readonly getVisibleUserMessagesWithAttachments: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ReadonlyArray<OrchestrationV2ConversationMessage>, ProjectionStoreV2Error>;
   readonly getThreadHistoryPage: (
     threadId: ThreadId,
     cursor: string,
@@ -5818,6 +5822,23 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         ),
       );
 
+    const getVisibleUserMessagesWithAttachments: ProjectionStoreV2Shape["getVisibleUserMessagesWithAttachments"] =
+      (threadId) =>
+        getVisibleMessageIds(threadId).pipe(
+          Effect.flatMap((visible) =>
+            sql<PayloadRow>`
+              SELECT payload_json FROM orchestration_v2_projection_messages
+              WHERE message_id IN (SELECT value FROM json_each(${JSON.stringify([...visible])}))
+                AND role = 'user'
+                AND json_array_length(payload_json, '$.attachments') > 0
+              ORDER BY created_at ASC, message_id ASC
+            `.pipe(
+              Effect.mapError((cause) => new ProjectionStoreReadError({ threadId, cause })),
+              Effect.flatMap(decodeRows(decodeMessagePayload, threadId)),
+            ),
+          ),
+        );
+
     const getThreadSnapshotWindow: ProjectionStoreV2Shape["getThreadSnapshotWindow"] = (
       threadId,
       options,
@@ -7104,6 +7125,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       searchThread: readOnReader(searchThread),
       searchThreadStream,
       getThreadAttachmentIds: readOnReader(getThreadAttachmentIds),
+      getVisibleUserMessagesWithAttachments: readOnReader(getVisibleUserMessagesWithAttachments),
     } satisfies ProjectionStoreV2Shape;
   }),
 );

@@ -20,6 +20,7 @@ import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { MessageBookmarksPopover } from "./MessageBookmarks";
 import { ScreenGalleryButton } from "./ScreenGallery";
+import { ThreadAttachmentsPopover } from "./ThreadAttachments";
 
 export interface PanelLayoutControlsProps {
   showThreadPanelControl?: boolean;
@@ -40,6 +41,8 @@ export interface PanelLayoutControlsProps {
   bookmarksThread?: ScopedThreadRef | null;
   /** Thread whose screenshot gallery the cluster offers; null hides the gallery button. */
   galleryThread?: ScopedThreadRef | null;
+  /** Thread whose attachments the cluster offers; null hides the attachments button. */
+  attachmentsThread?: ScopedThreadRef | null;
   /** Only offered on Claude chats that can still have a side chat. */
   sideChatAvailable?: boolean;
   sideChatOpen?: boolean;
@@ -66,6 +69,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   rightPanelUnavailableLabel = "Right panel is unavailable",
   bookmarksThread = null,
   galleryThread = null,
+  attachmentsThread = null,
   sideChatAvailable = false,
   sideChatOpen = false,
   onToggleSideChat,
@@ -110,6 +114,12 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
         <ScreenGalleryButton
           key={`gallery:${scopedThreadKey(galleryThread)}`}
           thread={galleryThread}
+        />
+      ) : null}
+      {showThreadPanelControl && attachmentsThread ? (
+        <ThreadAttachmentsPopover
+          key={`attachments:${scopedThreadKey(attachmentsThread)}`}
+          thread={attachmentsThread}
         />
       ) : null}
       {showThreadPanelControl && bookmarksThread ? (

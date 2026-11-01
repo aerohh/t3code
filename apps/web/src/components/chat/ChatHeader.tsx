@@ -61,6 +61,7 @@ interface ChatHeaderProps {
   sideChatControlShown?: boolean;
   bookmarksControlShown?: boolean;
   galleryControlShown?: boolean;
+  attachmentsControlShown?: boolean;
   onNewThreadInProject: () => void;
   onOpenProjectSettings?: (() => void) | undefined;
   onFindInThread?: ((threadRef: ScopedThreadRef) => void) | undefined;
@@ -88,10 +89,15 @@ function reservedTitlebarControlsPadding(input: {
   sideChat: boolean;
   bookmarks: boolean;
   gallery: boolean;
+  attachments: boolean;
 }): number {
   const fixedControls = input.rightPanelOpen ? 10 : input.rightPane ? 32 : 24;
   return (
-    fixedControls + (input.sideChat ? 10 : 0) + (input.bookmarks ? 9 : 0) + (input.gallery ? 9 : 0)
+    fixedControls +
+    (input.sideChat ? 10 : 0) +
+    (input.bookmarks ? 9 : 0) +
+    (input.gallery ? 9 : 0) +
+    (input.attachments ? 9 : 0)
   );
 }
 
@@ -109,6 +115,7 @@ export const ChatHeader = memo(function ChatHeader({
   sideChatControlShown = false,
   bookmarksControlShown = false,
   galleryControlShown = false,
+  attachmentsControlShown = false,
   onNewThreadInProject,
   onOpenProjectSettings,
   onFindInThread,
@@ -347,6 +354,7 @@ export const ChatHeader = memo(function ChatHeader({
           sideChat: sideChatControlShown,
           bookmarks: bookmarksControlShown,
           gallery: galleryControlShown,
+          attachments: attachmentsControlShown,
         })})`,
       }}
       onContextMenu={handleHeaderContextMenu}

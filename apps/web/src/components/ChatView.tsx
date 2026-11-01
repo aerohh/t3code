@@ -295,6 +295,7 @@ import {
 import type { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { ThreadDetailsPanel } from "./chat/ThreadDetailsPanel";
 import { useThreadHasMessageBookmarks } from "./chat/MessageBookmarks";
+import { useThreadHasAttachments } from "./chat/ThreadAttachments";
 import { SideChatBackdrop, SideChatCard, useSideChatCard } from "./chat/SideChatCard";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import {
@@ -1233,6 +1234,13 @@ export default function ChatView(props: ChatViewProps) {
     isServerThread && serverConfig?.messageBookmarks === true,
   );
   const screenGalleryShown = isServerThread && serverConfig?.screenGallery === true;
+  const threadAttachmentsShown = useThreadHasAttachments(
+    activeThreadRef,
+    isServerThread && serverConfig?.threadAttachments === true,
+    serverVisibleTurnItems.some(
+      ({ item }) => item.type === "user_message" && item.attachments.length > 0,
+    ),
+  );
   const canStartOrShowSideChat =
     !inSideChatCard &&
     serverThread !== null &&
@@ -3284,6 +3292,7 @@ export default function ChatView(props: ChatViewProps) {
   const panelToggleControlProps = {
     bookmarksThread: messageBookmarksShown ? activeThreadRef : null,
     galleryThread: screenGalleryShown ? activeThreadRef : null,
+    attachmentsThread: threadAttachmentsShown ? activeThreadRef : null,
     terminalAvailable: activeProject !== null,
     terminalOpen: terminalUiState.terminalOpen,
     terminalShortcutLabel: shortcutLabelForCommand(keybindings, "terminal.toggle"),
@@ -3376,7 +3385,8 @@ export default function ChatView(props: ChatViewProps) {
                     28 +
                     (canStartOrShowSideChat ? 9 : 0) +
                     (messageBookmarksShown ? 9 : 0) +
-                    (screenGalleryShown ? 9 : 0)
+                    (screenGalleryShown ? 9 : 0) +
+                    (threadAttachmentsShown ? 9 : 0)
                   })`,
                 }}
               />
@@ -3397,6 +3407,7 @@ export default function ChatView(props: ChatViewProps) {
               sideChatControlShown={canStartOrShowSideChat}
               bookmarksControlShown={messageBookmarksShown}
               galleryControlShown={screenGalleryShown}
+              attachmentsControlShown={threadAttachmentsShown}
               onNewThreadInProject={handleNewThreadInActiveProjectStable}
               {...(activeDraftLogicalProjectKey
                 ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }

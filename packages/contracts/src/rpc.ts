@@ -412,6 +412,11 @@ import {
   MessageBookmarkRenameInput,
 } from "./messageBookmarks.ts";
 import { ScreenGallery, ScreenGalleryError, ScreenGalleryInput } from "./screenGallery.ts";
+import {
+  ThreadAttachments,
+  ThreadAttachmentsError,
+  ThreadAttachmentsInput,
+} from "./threadAttachments.ts";
 
 export const WS_METHODS = {
   messageBookmarksSubscribe: "messageBookmarks.subscribe",
@@ -420,6 +425,7 @@ export const WS_METHODS = {
   messageBookmarksRename: "messageBookmarks.rename",
   messageBookmarksRemove: "messageBookmarks.remove",
   screenGalleryGet: "screenGallery.get",
+  threadAttachmentsList: "threadAttachments.list",
   projectsListEntries: "projects.listEntries",
   projectsListIgnoredFiles: "projects.listIgnoredFiles",
   projectsReadFile: "projects.readFile",
@@ -1793,6 +1799,11 @@ const WsScreenGalleryGetRpc = Rpc.make(WS_METHODS.screenGalleryGet, {
   success: ScreenGallery,
   error: Schema.Union([ScreenGalleryError, EnvironmentAuthorizationError]),
 });
+const WsThreadAttachmentsListRpc = Rpc.make(WS_METHODS.threadAttachmentsList, {
+  payload: ThreadAttachmentsInput,
+  success: ThreadAttachments,
+  error: Schema.Union([ThreadAttachmentsError, EnvironmentAuthorizationError]),
+});
 
 const WsOrchestrationV2SearchThreadsRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.searchThreads, {
   payload: OrchestrationV2SearchThreadsInput,
@@ -2039,6 +2050,10 @@ export const MessageBookmarksRpcGroup = RpcGroup.make(
 export const ScreenGalleryRpcGroup =
   RpcGroup.make(WsScreenGalleryGetRpc).middleware(RpcScopeAuthorization);
 
+export const ThreadAttachmentsRpcGroup = RpcGroup.make(WsThreadAttachmentsListRpc).middleware(
+  RpcScopeAuthorization,
+);
+
 export const WsCoreRpcGroup = RpcGroup.make(
   WsGuestShareCreateRpc,
   WsServerProbeRpc,
@@ -2251,4 +2266,8 @@ export const WsCoreRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeBackgroundCommandProgressRpc,
 ).middleware(RpcScopeAuthorization);
 
-export const WsRpcGroup = WsCoreRpcGroup.merge(MessageBookmarksRpcGroup, ScreenGalleryRpcGroup);
+export const WsRpcGroup = WsCoreRpcGroup.merge(
+  MessageBookmarksRpcGroup,
+  ScreenGalleryRpcGroup,
+  ThreadAttachmentsRpcGroup,
+);

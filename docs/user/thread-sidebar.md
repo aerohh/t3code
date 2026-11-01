@@ -14,6 +14,14 @@ New bookmarks use your configured text generation model for a short title. If it
 is unavailable or does not respond, a few words from the message remain as the
 title. You can rename or remove bookmarks from the list at any time.
 
+## Find a chat's attachments
+
+On web and desktop, open **Chat attachments** in the chat header to list the files,
+pictures, and pasted text you attached in that chat, including older history. Select
+one to open it in the right panel. A file attached more than once is listed once and
+opens its newest copy; copies count as the same file when their name and size match.
+The button appears once the chat has an attachment.
+
 ## Start a thread
 
 On web and desktop, a new thread keeps the current project and carries your model

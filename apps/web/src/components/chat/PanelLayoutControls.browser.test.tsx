@@ -8,6 +8,9 @@ vi.mock(import("./ScreenGallery"), () => ({
 vi.mock(import("./MessageBookmarks"), () => ({
   MessageBookmarksPopover: () => <button type="button">Bookmarks</button>,
 }));
+vi.mock(import("./ThreadAttachments"), () => ({
+  ThreadAttachmentsPopover: () => <button type="button">Attachments</button>,
+}));
 
 import { PanelLayoutControls } from "./PanelLayoutControls";
 
@@ -20,6 +23,7 @@ const controlsFor = (thread: ScopedThreadRef) => (
   <PanelLayoutControls
     galleryThread={thread}
     bookmarksThread={thread}
+    attachmentsThread={thread}
     terminalAvailable
     terminalOpen={false}
     terminalShortcutLabel={null}
@@ -43,7 +47,7 @@ describe("PanelLayoutControls", () => {
       await screen.rerender(controlsFor(threadRef(threadId)));
     }
 
-    for (const name of ["Screenshot gallery", "Bookmarks"]) {
+    for (const name of ["Screenshot gallery", "Bookmarks", "Attachments"]) {
       expect(screen.getByRole("button", { name }).elements()).toHaveLength(1);
     }
   });

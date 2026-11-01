@@ -47,6 +47,7 @@ export * from "./threadPullRequest.ts";
 export * from "./threadSearch.ts";
 export * from "./messageBookmarks.ts";
 export * from "./screenGallery.ts";
+export * from "./threadAttachments.ts";
 export * from "./threadTitle.ts";
 export * from "./t3ProjectFile.ts";
 export * from "./editor.ts";
