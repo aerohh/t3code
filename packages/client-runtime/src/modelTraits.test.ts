@@ -19,7 +19,7 @@ function effortDescriptor(
 const ids = (choices: ReadonlyArray<{ id: string }>) => choices.map((choice) => choice.id);
 
 describe("splitReasoningChoices", () => {
-  it("keeps Ultracode and Ultrathink off the level scale", () => {
+  it("keeps Ultracode off the level scale and leaves out prompt-injected Ultrathink", () => {
     const split = splitReasoningChoices(
       effortDescriptor(
         ["low", "medium", "high", "xhigh", "max", "ultracode", "ultrathink"],
@@ -27,6 +27,6 @@ describe("splitReasoningChoices", () => {
       ),
     );
     expect(ids(split.levels)).toEqual(["low", "medium", "high", "xhigh", "max"]);
-    expect(ids(split.modes)).toEqual(["ultracode", "ultrathink"]);
+    expect(ids(split.modes)).toEqual(["ultracode"]);
   });
 });

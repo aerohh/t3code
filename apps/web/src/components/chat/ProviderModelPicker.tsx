@@ -386,7 +386,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             ) : null}
           </>
         ) : (
-          <div className="w-80 max-w-[calc(100vw-2rem)] pb-1.5">
+          // The popup keeps the width it opened with, so this card matches the model list's width.
+          <div className="w-90 max-w-[calc(100vw-2rem)] pb-1.5">
             <div className="flex items-center gap-3 border-b px-3.5 py-3">
               <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent/70">
                 {selectedEntries && selectedEntries.length > 1 ? (

@@ -8,7 +8,6 @@ import {
 import {
   type ComposerContextReference,
   collectInlineContextIds,
-  stripInlineContextReferences,
 } from "~/lib/composerContextReferences";
 import {
   type ComposerFileAttachment,
@@ -54,8 +53,8 @@ import {
 } from "./preparingComposerImages";
 
 /**
- * Takes files into the draft: validates and reserves slots, compresses images, inserts
- * their inline chips, folds large pastes into text attachments, and confirms removing a referenced image.
+ * Takes files into the draft: validates and reserves slots, compresses images, folds large
+ * pastes into chip-only text attachments, and confirms removing a referenced image.
  */
 export function useComposerAttachmentIntake(input: {
   readonly activeThreadId: ChatComposerProps["activeThreadId"];
@@ -64,7 +63,6 @@ export function useComposerAttachmentIntake(input: {
   readonly pendingUserInputs: ReadonlyArray<PendingUserInput>;
   readonly supportsQuestionAttachments: boolean;
   readonly isLiteralPendingAnswer: boolean;
-  readonly projectSelectionRequired: boolean;
   readonly questionAttachmentTarget: DraftId | null;
   readonly attachmentTargetKey: string;
   readonly fileStagingLimit: number | null;
@@ -91,7 +89,6 @@ export function useComposerAttachmentIntake(input: {
     pendingUserInputs,
     supportsQuestionAttachments,
     isLiteralPendingAnswer,
-    projectSelectionRequired,
     questionAttachmentTarget,
     attachmentTargetKey,
     fileStagingLimit,
@@ -118,7 +115,6 @@ export function useComposerAttachmentIntake(input: {
     options?: {
       readonly source?: ChatFileAttachment["source"];
       readonly selection?: { start: number; end: number };
-      readonly skipImageInlineChip?: boolean;
     },
   ): Promise<boolean> => {
     if (!activeThreadId || files.length === 0 || isRevertingCheckpointRef.current) return false;
@@ -138,13 +134,6 @@ export function useComposerAttachmentIntake(input: {
     // large image is being compressed, and the attachments and errors belong
     // to the thread the paste happened in.
     const threadId = activeThreadId;
-    const imageAttachmentsGetChips =
-      !options?.skipImageInlineChip &&
-      (options?.selection !== undefined ||
-        pendingUserInputs.length > 0 ||
-        projectSelectionRequired ||
-        stripInlineContextReferences(promptRef.current).trim().length > 0);
-
     // Validation happens synchronously so concurrent pastes see each other:
     // accepted files reserve their attachment slots (as preparing images)
     // before the first await, keeping the total under the limit.
@@ -307,14 +296,9 @@ export function useComposerAttachmentIntake(input: {
           ? addComposerImagesToDraft(nextImages)
           : [],
     );
-    const storedImages = nextImages.filter((image) => storedImageIds.has(image.id));
     // The draft may be gone by now; revoking a URL the store already revoked is harmless.
     for (const image of nextImages) {
       if (!storedImageIds.has(image.id)) URL.revokeObjectURL(image.previewUrl);
-    }
-    if (storedImages.length > 0 && imageAttachmentsGetChips) {
-      insertedAny =
-        insertAttachmentReferences(storedImages.map(imageContextReference)) || insertedAny;
     }
     // Only failures are reported here. Success must not pass `null`: by
     // now other work (a failed send, an overlapping paste) may have set a

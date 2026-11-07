@@ -590,12 +590,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["composer rich text tiptap bold italic markdown styled wysiwyg"],
   },
   {
-    id: "composer-collapse",
-    title: "Collapse composer on scroll",
-    to: "/settings/chat",
-    searchTerms: ["composer rest resting scroll wheel conversation timeline shrink minimize"],
-  },
-  {
     id: "send-shortcut",
     title: "Send shortcut",
     to: "/settings/chat",

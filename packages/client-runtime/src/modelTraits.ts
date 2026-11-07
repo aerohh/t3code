@@ -4,15 +4,12 @@ import type {
   ProviderOptionDescriptor,
 } from "@t3tools/contracts";
 import {
-  applyClaudePromptEffortPrefix,
   buildProviderOptionSelectionsFromDescriptors,
   getProviderOptionCurrentLabel,
   getProviderOptionCurrentValue,
   isClaudeUltrathinkPrompt,
 } from "@t3tools/shared/model";
 import { REASONING_EFFORT_OPTION_IDS } from "./state/threadExecution.ts";
-
-export const ULTRATHINK_PROMPT_PREFIX = "Ultrathink:\n";
 
 export const REASONING_SELECT_DESCRIPTOR_IDS: ReadonlySet<string> = new Set([
   ...REASONING_EFFORT_OPTION_IDS,
@@ -65,10 +62,13 @@ export function getDescriptorStringValue(
   return typeof value === "string" ? value : null;
 }
 
+// Prompt-injected levels such as Ultrathink still work when typed, but pickers do not offer them.
 export function selectableProviderOptionChoices(
   descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
 ) {
-  return descriptor.options;
+  return descriptor.options.filter(
+    (option) => !descriptor.promptInjectedValues?.includes(option.id),
+  );
 }
 
 // Ultracode adds multi-agent orchestration and Ultrathink rewrites the prompt,
@@ -78,12 +78,11 @@ const REASONING_MODE_CHOICE_IDS: ReadonlySet<string> = new Set(["ultracode", "ul
 export function splitReasoningChoices(
   descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
 ) {
-  const isMode = (choice: (typeof descriptor.options)[number]) =>
-    REASONING_MODE_CHOICE_IDS.has(choice.id) ||
-    (descriptor.promptInjectedValues?.includes(choice.id) ?? false);
+  const choices = selectableProviderOptionChoices(descriptor);
+  const isMode = (choice: (typeof choices)[number]) => REASONING_MODE_CHOICE_IDS.has(choice.id);
   return {
-    levels: descriptor.options.filter((choice) => !isMode(choice)),
-    modes: descriptor.options.filter(isMode),
+    levels: choices.filter((choice) => !isMode(choice)),
+    modes: choices.filter(isMode),
   };
 }
 
@@ -111,15 +110,7 @@ export function getTraitSelectChange(
   prompt: string,
   value: string,
 ) {
-  if (!value) return null;
-  if (descriptor.promptInjectedValues?.includes(value)) {
-    return {
-      prompt:
-        prompt.trim().length === 0
-          ? ULTRATHINK_PROMPT_PREFIX
-          : applyClaudePromptEffortPrefix(prompt, "ultrathink"),
-    };
-  }
+  if (!value || descriptor.promptInjectedValues?.includes(value)) return null;
   const isPrimary = descriptor.id === selected.primarySelectDescriptor?.id;
   if (isPrimary && selected.ultrathinkInBodyText) return null;
   return {
