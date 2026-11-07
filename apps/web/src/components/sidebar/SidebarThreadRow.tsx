@@ -459,12 +459,27 @@ export const SIDEBAR_SORTABLE_DRAG_DISABLED = { draggable: true } as const;
 // The box is drawn in slices (header, then one per row). The fill repeats
 // the sidebar's own colour and grain: any other surface lands between the
 // sidebar and the row hover/selected colours in dark themes and reads as a
-// hole, not a card. A brighter top edge marks where the box starts.
+// hole, not a card. Brighter top and bottom edges mark where the box starts and ends.
 export function sidebarTagBoxSurfaceClassName(slice: "top" | "middle" | "bottom" | "whole") {
   const hasTopEdge = slice === "top" || slice === "whole";
+  const hasBottomEdge = slice === "bottom" || slice === "whole";
   return cn(
     "border-sidebar-foreground/8 bg-sidebar surface-grain",
     hasTopEdge && "border-t-sidebar-foreground/11 dark:inset-shadow-2xs dark:inset-shadow-white/4",
+    hasBottomEdge && "border-b-sidebar-foreground/11",
+  );
+}
+
+export type SidebarTagBoxTone = "info" | "success";
+
+// Mirrors the header's tint, fading up from the box's bottom edge. The slice
+// it sits on needs `relative isolate` so the tint stays under the row.
+export function sidebarTagBoxBottomTintClassName(tone: SidebarTagBoxTone | undefined) {
+  return cn(
+    "after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:-z-10 after:h-9 after:rounded-b-lg after:bg-linear-to-t after:to-transparent",
+    tone === undefined && "after:from-sidebar-foreground/3.5",
+    tone === "info" && "after:from-info/3.5",
+    tone === "success" && "after:from-success/3",
   );
 }
 
@@ -475,6 +490,7 @@ export function sidebarTagBoxSurfaceClassName(slice: "top" | "middle" | "bottom"
 export function sidebarTagBoxPartClassName(
   part: "middle" | "last" | "alone",
   variant: "card" | "slim",
+  tone: SidebarTagBoxTone | undefined,
 ) {
   if (part === "alone") return "-mt-px mb-3 py-0.5";
   return cn(
@@ -482,7 +498,8 @@ export function sidebarTagBoxPartClassName(
     sidebarTagBoxSurfaceClassName(part === "last" ? "bottom" : "middle"),
     variant === "card" ? "pt-0.75 pb-0.5" : "pt-px",
     // The bottom margin is mirrored by SIDEBAR_TAG_BOX_BOTTOM_GAP_PX in the drag preview.
-    part === "last" && "mb-3 rounded-b-lg border-b pb-1",
+    part === "last" && "relative isolate mb-3 rounded-b-lg border-b pb-1",
+    part === "last" && sidebarTagBoxBottomTintClassName(tone),
   );
 }
 const SIDEBAR_SORTABLE_DRAG_ENABLED = { draggable: false } as const;
@@ -646,6 +663,8 @@ type SidebarThreadRowProps = {
   settledWhileOpen?: boolean | undefined;
   /** Set on rows drawn inside a tag box: which slice of the box they draw. */
   tagBoxPart?: "middle" | "last" | "alone" | undefined;
+  /** The Done and In progress boxes tint their bottom edge in their own colour. */
+  tagBoxTone?: SidebarTagBoxTone | undefined;
   /** Set on a fork or started thread drawn under the chat it came from. */
   nestedRelation?: SidebarNestedRelation | undefined;
   /** Set on a nested row whose chat also has a copy in Done or In progress, so this row stays quiet. */
@@ -1371,7 +1390,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             multiline &&
             "[contain-intrinsic-size:auto_54px]",
           props.nestedRelation !== undefined && "group/nested-row relative",
-          props.tagBoxPart && sidebarTagBoxPartClassName(props.tagBoxPart, "slim"),
+          props.tagBoxPart &&
+            sidebarTagBoxPartClassName(props.tagBoxPart, "slim", props.tagBoxTone),
           nestedFamilyGapClassName,
           props.settledWhileOpen &&
             "mx-0.5 mb-4 rounded-lg border-2 border-dashed border-sidebar-foreground/25 opacity-60 transition-opacity hover:opacity-100 focus-within:opacity-100",
@@ -1597,7 +1617,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           props.shelfCopyParent === undefined &&
           metaLineEmpty &&
           "[contain-intrinsic-size:auto_62px]",
-        props.tagBoxPart ? sidebarTagBoxPartClassName(props.tagBoxPart, "card") : "py-0.5",
+        props.tagBoxPart
+          ? sidebarTagBoxPartClassName(props.tagBoxPart, "card", props.tagBoxTone)
+          : "py-0.5",
         nestedFamilyGapClassName,
         sortable?.isDragging && "relative z-20",
       )}

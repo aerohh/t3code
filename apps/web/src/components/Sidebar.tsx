@@ -670,11 +670,21 @@ function useSidebarThreads(input: {
       if (isOlder(thread)) olderInFreshFamilyKeys.add(threadShellKey(thread));
     }
   }
-  const { boxes: activeTagBoxes, looseThreads: looseActiveThreads } = groupSidebarThreadsByTag(
-    activeThreads,
+  // With the beta on, folders hold only chats used today; older tagged chats
+  // keep their tag but join the loose list under "Older".
+  const activeThreadsUsedToday: EnvironmentThreadShell[] = [];
+  const activeThreadsUsedBeforeToday: EnvironmentThreadShell[] = [];
+  for (const thread of activeThreads) {
+    const usedBeforeToday =
+      workingShelfEnabled && isBeforeLocalToday(sidebarThreadLastUsedMs(thread), nowMs);
+    (usedBeforeToday ? activeThreadsUsedBeforeToday : activeThreadsUsedToday).push(thread);
+  }
+  const { boxes: activeTagBoxes, looseThreads: looseThreadsUsedToday } = groupSidebarThreadsByTag(
+    activeThreadsUsedToday,
     tagDisplayNames,
     liftedCountByTagKey,
   );
+  const looseActiveThreads = [...looseThreadsUsedToday, ...activeThreadsUsedBeforeToday];
   const { boxes: settledTagBoxes, looseThreads: looseSettledThreads } = groupSidebarThreadsByTag(
     listedSettledThreads,
     tagDisplayNames,
@@ -685,8 +695,9 @@ function useSidebarThreads(input: {
   const looseActiveDayLabels = workingShelfEnabled
     ? resolveSidebarDayLabels({
         looseThreadLastUsedTimes: looseActiveThreads.map(sidebarThreadLastUsedMs),
-        nowMs: Date.parse(`${nowMinute}:00.000Z`),
+        nowMs,
         hasDoneOrInProgressThreads: doneThreads.length + workingThreads.length > 0,
+        hasTagFolders: activeTagBoxes.length > 0,
       })
     : NO_SIDEBAR_DAY_LABELS;
   const visibleSettledThreads = (() => {
@@ -2301,10 +2312,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       items.push(...rowsOf(visibleWorkingThreads, "working"));
     }
     items.push({ kind: "marker", marker: "pinned-divider" });
+    if (looseActiveDayLabels.showToday) items.push({ kind: "marker", marker: "today-header" });
     items.push(...tagBoxItemsOf(renderedActiveTagBoxes, "active"));
     const activeRows = rowsOf(looseActiveThreads, "active");
     items.push({ kind: "marker", marker: "active-placeholder" });
-    if (looseActiveDayLabels.showToday) items.push({ kind: "marker", marker: "today-header" });
     const { olderStartIndex } = looseActiveDayLabels;
     if (olderStartIndex === null) {
       items.push(...activeRows);
@@ -3729,6 +3740,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           isPinned: thread.pinnedAt != null,
                           settledWhileOpen: settledWhileOpen,
                           tagBoxPart: tagBoxPart ?? shelfBoxPart,
+                          tagBoxTone:
+                            section === "working"
+                              ? "info"
+                              : section === "done"
+                                ? "success"
+                                : undefined,
                           dropVerb:
                             dragState?.activeKey === threadKey
                               ? resolveSidebarDropVerb(dragState.activeSection, dragTargetSection)
@@ -3891,7 +3908,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               <SortableSidebarTagBoxItem
                                 key={sidebarListItemId(item)}
                                 id={sidebarListItemId(item)}
-                                className={sidebarTagBoxPartClassName("last", "slim")}
+                                className={sidebarTagBoxPartClassName("last", "slim", undefined)}
                               >
                                 <button
                                   type="button"

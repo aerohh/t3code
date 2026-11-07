@@ -297,15 +297,16 @@ describe("sidebar thread tags", () => {
     expect(lifted.looseThreads.map((thread) => thread.id)).toEqual(["loose-1", "ops-1", "loose-2"]);
   });
 
-  it("labels Older only below a chat from today, and Today only under Done or In progress", () => {
+  it("labels Older only below a chat or folder from today, and Today only under Done or In progress", () => {
     const nowMs = new Date(2026, 9, 25, 9, 0).getTime();
     const today = new Date(2026, 9, 25, 0, 0).getTime();
     const yesterday = new Date(2026, 9, 24, 23, 59).getTime();
-    const labels = (times: number[], hasDoneOrInProgressThreads: boolean) =>
+    const labels = (times: number[], hasDoneOrInProgressThreads: boolean, hasTagFolders = false) =>
       resolveSidebarDayLabels({
         looseThreadLastUsedTimes: times,
         nowMs,
         hasDoneOrInProgressThreads,
+        hasTagFolders,
       });
 
     expect(labels([today, yesterday], true)).toEqual({ showToday: true, olderStartIndex: 1 });
@@ -318,6 +319,10 @@ describe("sidebar thread tags", () => {
     });
     expect(labels([today], false)).toEqual({ showToday: false, olderStartIndex: null });
     expect(labels([], true)).toEqual({ showToday: false, olderStartIndex: null });
+    // Folders hold only today's chats, so they count as today.
+    expect(labels([yesterday], false, true)).toEqual({ showToday: false, olderStartIndex: 0 });
+    expect(labels([yesterday], true, true)).toEqual({ showToday: true, olderStartIndex: 0 });
+    expect(labels([], true, true)).toEqual({ showToday: true, olderStartIndex: null });
   });
 
   it("puts a chat restored today under Older when it was last used days ago", () => {
@@ -334,6 +339,7 @@ describe("sidebar thread tags", () => {
         looseThreadLastUsedTimes: [nowMs, sidebarThreadLastUsedMs(restoredToday)],
         nowMs,
         hasDoneOrInProgressThreads: true,
+        hasTagFolders: false,
       }),
     ).toEqual({ showToday: true, olderStartIndex: 1 });
   });

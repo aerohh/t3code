@@ -216,10 +216,10 @@ export function createSidebarSortingStrategy(input: {
       projected.push(...groups.working);
     }
     marker("pinned-divider");
-    projected.push(...activeTagBoxItems);
     if (hasMarker("today-header")) marker("today-header");
+    projected.push(...activeTagBoxItems);
     // "Older" goes above the first older chat, which may be the dragged one,
-    // and only below a chat from today.
+    // and only below a chat or folder from today.
     const olderHeaderIndex = items.findIndex(
       (item) => item.kind === "marker" && item.marker === "older-header",
     );
@@ -237,7 +237,7 @@ export function createSidebarSortingStrategy(input: {
     // Only an "Older" row already in the list can be moved into place.
     if (olderHeaderIndex !== -1 && input.draggedThreadIsOlder) olderKeys.add(active.key);
     const firstOlderIndex = groups.active.findIndex((item) => olderKeys.has(item.key));
-    if (firstOlderIndex <= 0) {
+    if (firstOlderIndex === -1 || (firstOlderIndex === 0 && activeTagBoxItems.length === 0)) {
       if (groups.active.length > 0) projected.push(...groups.active);
       else marker("active-placeholder");
     } else {

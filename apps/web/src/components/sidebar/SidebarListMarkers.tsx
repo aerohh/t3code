@@ -10,7 +10,11 @@ import {
   sidebarMarkerId,
   type SidebarListMarker,
 } from "../Sidebar.logic";
-import { SIDEBAR_SORTABLE_DRAG_DISABLED, sidebarTagBoxSurfaceClassName } from "./SidebarThreadRow";
+import {
+  SIDEBAR_SORTABLE_DRAG_DISABLED,
+  sidebarTagBoxBottomTintClassName,
+  sidebarTagBoxSurfaceClassName,
+} from "./SidebarThreadRow";
 
 function SortableSidebarMarker(props: {
   marker: SidebarListMarker;
@@ -241,6 +245,7 @@ export function SidebarTagBoxHeader(props: {
           props.tone === undefined && "before:from-sidebar-foreground/3.5",
           props.tone === "info" && "before:from-info/3.5",
           props.tone === "success" && "before:from-success/3",
+          props.endsBox && sidebarTagBoxBottomTintClassName(props.tone),
         )}
       >
         <button

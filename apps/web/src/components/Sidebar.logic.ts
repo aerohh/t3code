@@ -907,14 +907,17 @@ export function resolveSidebarDayLabels(input: {
   readonly looseThreadLastUsedTimes: readonly number[];
   readonly nowMs: number;
   readonly hasDoneOrInProgressThreads: boolean;
+  /** Folders only hold chats used today, so they count as today. */
+  readonly hasTagFolders: boolean;
 }): SidebarDayLabels {
   const times = input.looseThreadLastUsedTimes;
   const firstOlderIndex = times.findIndex((time) => isBeforeLocalToday(time, input.nowMs));
   const todayCount = firstOlderIndex === -1 ? times.length : firstOlderIndex;
   const olderCount = times.length - todayCount;
+  const hasChatsFromToday = todayCount > 0 || input.hasTagFolders;
   return {
-    showToday: input.hasDoneOrInProgressThreads && todayCount > 0,
-    olderStartIndex: todayCount > 0 && olderCount > 0 ? todayCount : null,
+    showToday: input.hasDoneOrInProgressThreads && hasChatsFromToday,
+    olderStartIndex: hasChatsFromToday && olderCount > 0 ? todayCount : null,
   };
 }
 

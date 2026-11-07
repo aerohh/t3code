@@ -183,7 +183,8 @@ On iOS and Android, **Settings → General → Working section** instead moves t
 or waiting on work they will resume from into a collapsed **Working** section below the active list.
 
 While this is on, the active list on web and desktop is ordered by when you last used each
-thread, under small **Today** and **Older** labels. On iOS and Android it is ordered by when each
+thread, under small **Today** and **Older** labels. Tag folders hold only threads you used today;
+older tagged threads keep their tag and show under **Older**. On iOS and Android it is ordered by when each
 thread last came back to you. Either way you cannot drag or move threads within it. Your saved
 order returns when you turn it off.
 

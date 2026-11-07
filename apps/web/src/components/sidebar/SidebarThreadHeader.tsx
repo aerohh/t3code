@@ -5,6 +5,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
+  useId,
 } from "react";
 
 import { cn } from "~/lib/utils";
@@ -112,7 +113,7 @@ export function SidebarThreadHeader({
               active={settledViewOpen}
               onClick={onToggleSettledView}
             >
-              <CircleCheckIcon />
+              {settledViewOpen ? <FilledCircleCheckIcon /> : <CircleCheckIcon />}
             </SidebarHeaderIconButton>
           </>
         ) : null}
@@ -138,6 +139,28 @@ export function SidebarThreadHeader({
         </SidebarHeaderIconButton>
       </div>
     </div>
+  );
+}
+
+// The check is masked out of the disc so it shows whatever is behind the sidebar,
+// including the see-through window background.
+function FilledCircleCheckIcon() {
+  const maskId = useId();
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <mask id={maskId}>
+        <rect width="24" height="24" className="fill-white" />
+        <path
+          d="m8.5 12 2.5 2.5 4.5-5"
+          fill="none"
+          className="stroke-black"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </mask>
+      <circle cx="12" cy="12" r="11" fill="currentColor" mask={`url(#${maskId})`} />
+    </svg>
   );
 }
 

@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { RotateCwIcon, TriangleAlertIcon } from "lucide-react";
 import { useSyncExternalStore } from "react";
 
 import { cn } from "~/lib/utils";
@@ -72,64 +73,32 @@ export function SidebarUpdateCapsule({
   const now = useNow(run.phase === "countdown" ? 1_000 : hasActiveMachine ? 30_000 : null);
   const view = describeUpdateCapsule(run, machines, local, now);
   const updateServer = useServerUpdate();
-  const failed = machines.some(({ status }) => status === "failed");
-  const settled = !hasActiveMachine && run.localVersion === null;
-
-  const actionLabel =
-    view.action === "later" ? "Later" : view.action === "retry" ? "Retry" : "Dismiss";
-  const runAction = () => {
-    if (view.action === "later") postponeUpdateRestart();
-    else if (view.action === "retry") retryFailedUpdateRunServers(updateServer);
-    else dismissSettledUpdateRunMachines();
-  };
-
   const triggerLabel = view.slow
     ? `${view.label} ${view.slow.status} ${view.slow.elapsed}`
     : view.label;
-  const inProgress = view.action === null && view.tone !== "failed";
 
   return (
     <Popover>
-      {inProgress ? (
-        <PopoverTrigger
-          render={
-            <button
-              type="button"
-              aria-label={triggerLabel}
-              className="grid size-7 shrink-0 cursor-pointer place-items-center rounded-full bg-sidebar-control-surface text-sidebar-foreground outline-hidden ring-ring hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset"
-            >
-              <DesktopUpdateRunningIcon />
-            </button>
-          }
-        />
-      ) : (
-        <div
-          className={cn(
-            "relative flex h-7 min-w-0 items-center rounded-full bg-sidebar-control-surface text-sidebar-foreground",
-            view.tone === "failed" && "ring-1 ring-destructive/40 ring-inset",
-          )}
-        >
-          <PopoverTrigger
-            render={
-              <button
-                type="button"
-                aria-label={triggerLabel}
-                className="absolute inset-0 cursor-pointer rounded-full outline-hidden ring-ring hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset"
-              />
-            }
-          />
-          <span className="pointer-events-none relative min-w-0 flex-1 truncate pl-3 text-xs">
-            <span className={cn(view.tone === "failed" && "text-destructive")}>{view.label}</span>
-          </span>
+      <PopoverTrigger
+        render={
           <button
             type="button"
-            className="relative shrink-0 cursor-pointer pr-3 pl-1.5 text-xs underline decoration-muted-foreground/60 underline-offset-3 hover:decoration-current"
-            onClick={runAction}
+            aria-label={triggerLabel}
+            className={cn(
+              "grid size-7 shrink-0 cursor-pointer place-items-center rounded-full bg-sidebar-control-surface text-sidebar-foreground outline-hidden ring-ring hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset",
+              view.tone === "failed" && "text-destructive ring-1 ring-destructive/40 ring-inset",
+            )}
           >
-            {actionLabel}
+            {view.tone === "failed" ? (
+              <TriangleAlertIcon className="size-4" />
+            ) : view.action === "later" ? (
+              <RotateCwIcon className="size-4" />
+            ) : (
+              <DesktopUpdateRunningIcon />
+            )}
           </button>
-        </div>
-      )}
+        }
+      />
       <PopoverPopup side="bottom" align="end" padding="compact" width="sm">
         <div className="flex flex-col gap-1 text-xs">
           {run.localVersion !== null ? (
@@ -168,16 +137,27 @@ export function SidebarUpdateCapsule({
               ) : null}
             </div>
           ))}
-          {settled && failed ? (
+          {view.action !== null ? (
             <div className="mt-1 flex justify-end gap-1">
+              {view.action === "later" ? (
+                <Button size="xs" variant="outline" onClick={postponeUpdateRestart}>
+                  Later
+                </Button>
+              ) : null}
               {view.action === "retry" ? (
-                <Button size="xs" variant="outline" onClick={runAction}>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => retryFailedUpdateRunServers(updateServer)}
+                >
                   Retry
                 </Button>
               ) : null}
-              <Button size="xs" variant="ghost" onClick={dismissSettledUpdateRunMachines}>
-                Dismiss
-              </Button>
+              {view.action === "retry" || view.action === "dismiss" ? (
+                <Button size="xs" variant="ghost" onClick={dismissSettledUpdateRunMachines}>
+                  Dismiss
+                </Button>
+              ) : null}
             </div>
           ) : null}
         </div>
