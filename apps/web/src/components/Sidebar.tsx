@@ -465,6 +465,7 @@ function useSidebarThreads(input: {
   readonly threads: readonly EnvironmentThreadShell[];
   readonly delegatedUnderParent: ReadonlySet<string>;
   readonly routeRowThreadKey: string | null;
+  readonly threadKeyLeavingAfterSettle: string | null;
   // Set in boring mode: the project groups to fold active threads into, in order.
   readonly folderGroups: readonly SidebarProjectSnapshot[] | null;
   // Keeps folders with no active threads, so a project the user filtered to or pinned can start one.
@@ -479,6 +480,7 @@ function useSidebarThreads(input: {
     threads,
     delegatedUnderParent,
     routeRowThreadKey,
+    threadKeyLeavingAfterSettle,
     folderGroups,
     keepEmptyFolders: keepEmpty,
   } = input;
@@ -630,7 +632,11 @@ function useSidebarThreads(input: {
   // as a plain row too.
   const renderedSettledThreads = settledViewOpen
     ? visibleSettledThreads
-    : routeThreadOnly(settledThreads, routeRowThreadKey);
+    : routeThreadOnly(
+        settledThreads,
+        // Settling the open chat moves to a new one; don't flash it up here meanwhile.
+        routeRowThreadKey === threadKeyLeavingAfterSettle ? null : routeRowThreadKey,
+      );
   const renderedActiveTagBoxes = activeTagBoxes.map((box) => {
     const open = isSidebarTagBoxOpen(tagBoxToggles, "active", box.tagKey);
     return {
@@ -1233,6 +1239,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       : null;
   const [renamingTitle, setRenamingTitle] = useState("");
   const settlingThreadKeysRef = useRef(new Set<string>());
+  const [threadKeyLeavingAfterSettle, setThreadKeyLeavingAfterSettle] = useState<string | null>(
+    null,
+  );
   const threadListRef = useRef<HTMLUListElement | null>(null);
   const sidebarContentRef = useRef<HTMLDivElement | null>(null);
   const dragLabelOffsetRef = useRef(0);
@@ -1537,6 +1546,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     threads,
     delegatedUnderParent,
     routeRowThreadKey,
+    threadKeyLeavingAfterSettle,
     folderGroups: boringSidebarEnabled
       ? scopedProjectGroups.length === 0
         ? // An archived project keeps a folder for its active threads, below the rest.
@@ -1801,51 +1811,60 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         : () => void router.navigate({ to: "/" });
   };
 
-  const attemptSettle = (
-    threadRef: ScopedThreadRef,
-    opts: { coSettlingKeys?: ReadonlySet<string> } = {},
-  ) => {
+  const planNewThreadAfterSettle = (threadKey: string): (() => Promise<unknown>) | null => {
+    if (readRouteThreadKey(router) !== threadKey) return null;
+    const shell = threadByKeyRef.current.get(threadKey);
+    return shell
+      ? () => handleNewThread(scopeProjectRef(shell.environmentId, shell.projectId))
+      : () => router.navigate({ to: "/" });
+  };
+
+  const attemptSettle = (threadRef: ScopedThreadRef) => {
     void (async () => {
       const threadKey = scopedThreadKey(threadRef);
       if (settlingThreadKeysRef.current.has(threadKey)) return;
       settlingThreadKeysRef.current.add(threadKey);
-      const navigateAfterSettle = planForwardNavigation(threadKey, opts.coSettlingKeys);
-      const result = await settleThread(threadRef);
-      settlingThreadKeysRef.current.delete(threadKey);
-      if (result._tag === "Failure") {
-        if (!isAtomCommandInterrupted(result)) {
-          const error = squashAtomCommandFailure(result);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Failed to settle thread",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
+      const navigateAfterSettle = planNewThreadAfterSettle(threadKey);
+      if (navigateAfterSettle !== null) setThreadKeyLeavingAfterSettle(threadKey);
+      try {
+        const result = await settleThread(threadRef);
+        settlingThreadKeysRef.current.delete(threadKey);
+        if (result._tag === "Failure") {
+          if (!isAtomCommandInterrupted(result)) {
+            const error = squashAtomCommandFailure(result);
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Failed to settle thread",
+                description: error instanceof Error ? error.message : "An error occurred.",
+              }),
+            );
+          }
+          return;
         }
-        return;
-      }
-      if (
-        shouldNavigateAfterThreadPark({
-          threadKey,
-          currentThreadKey: readRouteThreadKey(router),
-          action: "settle",
-          now: new Date().toISOString(),
-          thread: readThreadShell(threadRef),
-        })
-      ) {
-        navigateAfterSettle?.();
+        if (
+          shouldNavigateAfterThreadPark({
+            threadKey,
+            currentThreadKey: readRouteThreadKey(router),
+            action: "settle",
+            now: new Date().toISOString(),
+            thread: readThreadShell(threadRef),
+          })
+        ) {
+          await navigateAfterSettle?.();
+        }
+      } finally {
+        setThreadKeyLeavingAfterSettle((current) => (current === threadKey ? null : current));
       }
     })();
   };
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this sidebar's settle handler in the module-level settleAndAdvance registry
   useEffect(() => registerSettleAndAdvance(attemptSettle), [attemptSettle]);
   const settleThreads = (threadKeys: readonly string[]) => {
-    const coSettlingKeys = new Set(threadKeys);
     for (const threadKey of threadKeys) {
       const thread = threadByKeyRef.current.get(threadKey);
       if (!thread || thread.settledOverride === "settled") continue;
-      attemptSettle(scopeThreadRef(thread.environmentId, thread.id), { coSettlingKeys });
+      attemptSettle(scopeThreadRef(thread.environmentId, thread.id));
     }
   };
   const attemptUnsettle = (threadRef: ScopedThreadRef) => {
