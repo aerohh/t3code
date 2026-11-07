@@ -388,6 +388,48 @@ it.effect("sql: lists only active threads with pull request links, oldest first"
   }).pipe(Effect.provide(layerSql)),
 );
 
+it.effect("sql: lists threads whose forks or started threads are still open", () =>
+  Effect.gen(function* () {
+    const store = yield* ProjectionStore.ProjectionStoreV2;
+    const forkParent = yield* createThread("nested-fork-parent");
+    const lineageParent = yield* createThread("nested-lineage-parent");
+    const startedParent = yield* createThread("nested-started-parent");
+    const closedParent = yield* createThread("nested-closed-parent");
+    const forkOf = (parentThreadId: ThreadId) => ({
+      lineage: {
+        parentThreadId,
+        relationshipToParent: "fork" as const,
+        rootThreadId: parentThreadId,
+      },
+    });
+    yield* createThread("nested-run-fork", {
+      ...forkOf(lineageParent),
+      forkedFrom: { type: "run", threadId: forkParent, runId: RunId.make("run:nested") },
+    });
+    yield* createThread("nested-lineage-fork", forkOf(lineageParent));
+    yield* createThread("nested-started", { startedFromThreadId: startedParent });
+    yield* createThread("nested-settled", {
+      ...forkOf(closedParent),
+      settledOverride: "settled",
+      settledAt: old,
+    });
+    yield* createThread("nested-archived", { ...forkOf(closedParent), archivedAt: old });
+    yield* createThread("nested-side-chat", { ...forkOf(closedParent), sideChat: {} });
+    yield* createThread("nested-subagent", {
+      lineage: {
+        parentThreadId: closedParent,
+        relationshipToParent: "subagent",
+        rootThreadId: closedParent,
+      },
+    });
+
+    assert.deepEqual(
+      yield* store.getThreadIdsWithOpenNestedThreads,
+      new Set([forkParent, lineageParent, startedParent]),
+    );
+  }).pipe(Effect.provide(layerSql)),
+);
+
 it.effect("sql: an unsettled-only shell read skips settled threads", () =>
   Effect.gen(function* () {
     const store = yield* ProjectionStore.ProjectionStoreV2;

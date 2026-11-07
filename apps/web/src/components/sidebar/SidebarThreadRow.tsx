@@ -32,6 +32,7 @@ import {
   AlarmClockIcon,
   AlarmClockOffIcon,
   ArrowRightLeftIcon,
+  ArrowUpIcon,
   CheckIcon,
   CircleAlertIcon,
   CircleCheckIcon,
@@ -40,7 +41,9 @@ import {
   ClockIcon,
   Columns2Icon,
   GitBranchIcon,
+  GitForkIcon,
   MessageCircleQuestionIcon,
+  MessageSquareIcon,
   PinIcon,
   PinOffIcon,
   ShieldQuestionIcon,
@@ -90,6 +93,8 @@ import {
   useRetainedValue,
   useSidebarRowSubscriptionLease,
   setFileDragActive,
+  type SidebarNestedRelation,
+  type SidebarShelfCopyParent,
 } from "../Sidebar.logic";
 import { resolveLocalCheckoutBranchMismatch } from "../BranchToolbar.logic";
 import {
@@ -522,6 +527,56 @@ export function SortableThreadRow(
   // Keyed by variant so a card/slim switch remounts the row.
   return <SidebarThreadRow key={rowProps.variant} {...rowProps} thread={thread} sortable={bag} />;
 }
+
+/** A row drawn under its parent card. It moves with the parent instead of dragging on its own. */
+export function NestedThreadRow(props: Omit<SidebarThreadRowProps, "sortable">) {
+  const thread =
+    useThreadShell(scopeThreadRef(props.thread.environmentId, props.thread.id)) ?? props.thread;
+  return <SidebarThreadRow {...props} thread={thread} />;
+}
+
+function NestedRelationIcon(props: { relation: SidebarNestedRelation; className: string }) {
+  const isFork = props.relation === "fork";
+  const Icon = isFork ? GitForkIcon : MessageSquareIcon;
+  return (
+    <Icon
+      aria-hidden
+      strokeWidth={2.5}
+      className={cn(
+        props.className,
+        // The fork fills only its dots; its connecting lines are open paths.
+        isFork
+          ? "text-primary [&_circle]:fill-current"
+          : "fill-current text-sidebar-muted-foreground",
+      )}
+    />
+  );
+}
+
+function NestedThreadConnector(props: {
+  relation: SidebarNestedRelation;
+  fade: "quiet" | "older" | null;
+}) {
+  return (
+    <span aria-hidden className="pointer-events-none absolute inset-y-0 -left-3 w-3">
+      {/* The first row's line reaches up into the gap above it, as a stem toward the parent. */}
+      <span className="absolute top-0 -bottom-px -left-px border-l-2 border-sidebar-muted-foreground/65 group-last/nested-row:bottom-auto group-last/nested-row:h-4.5 [li:first-child>*>&]:-top-1" />
+      <span className="absolute top-2.5 -left-2 flex size-4 items-center justify-center rounded-full bg-sidebar">
+        <NestedRelationIcon
+          relation={props.relation}
+          className={cn(
+            props.relation === "fork" ? "size-3.5" : "size-3",
+            props.fade !== null &&
+              "transition-opacity group-hover/nested-row:opacity-100 group-focus-within/nested-row:opacity-100 motion-reduce:transition-none",
+            props.fade === "quiet" && "opacity-45",
+            props.fade === "older" && "opacity-60",
+          )}
+        />
+      </span>
+    </span>
+  );
+}
+
 export type SidebarSweepAction = "settle" | "unsettle" | "unsnooze";
 const dropVerbBadge: Record<SidebarDropVerb | "settle" | "unsettle", ReactNode> = {
   pin: (
@@ -580,6 +635,10 @@ type SidebarThreadRowProps = {
   navigationParent?: string | undefined;
   variantAction: SidebarSweepAction;
   settlementSupported: boolean;
+  /** Set on a nested chat's copy in Done or In progress, which names its parent. */
+  shelfCopyParent?: SidebarShelfCopyParent | undefined;
+  /** The server refuses to settle this chat while one of its nested chats is open. */
+  settleBlockedByNestedThreads?: boolean;
   snoozeSupported: boolean;
   pinningSupported: boolean;
   isPinned: boolean;
@@ -587,6 +646,13 @@ type SidebarThreadRowProps = {
   settledWhileOpen?: boolean | undefined;
   /** Set on rows drawn inside a tag box: which slice of the box they draw. */
   tagBoxPart?: "middle" | "last" | "alone" | undefined;
+  /** Set on a fork or started thread drawn under the chat it came from. */
+  nestedRelation?: SidebarNestedRelation | undefined;
+  /** Set on a nested row whose chat also has a copy in Done or In progress, so this row stays quiet. */
+  copiedToTopShelf?: boolean;
+  /** Set on a chat not used today in a family that has one used today, so the fresh one stands out. */
+  dimmedAsOlderInFamily?: boolean;
+  nestedRows?: ReactNode;
   sortable?: SortableThreadRowBag | undefined;
   dropVerb: SidebarDropVerb | null;
   dragOverPinned: boolean;
@@ -923,8 +989,19 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const handleSettleClick = (event: ReactMouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
+    if (props.settleBlockedByNestedThreads) return;
     onSettle(threadRef);
   };
+  const handleSettlePointerDown = (event: ReactPointerEvent) => {
+    if (!props.settleBlockedByNestedThreads) {
+      handleActionPointerDown(event);
+      return;
+    }
+    event.stopPropagation();
+  };
+  const settleTooltip = props.settleBlockedByNestedThreads
+    ? "Settle its nested chats first"
+    : "Settle thread";
   const handleActionPointerDown = (event: ReactPointerEvent) => {
     if (!event.isPrimary || event.button !== 0) return;
     event.stopPropagation();
@@ -990,6 +1067,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     }
   };
 
+  const isQuietInTree = props.copiedToTopShelf === true && !props.isActive;
+  const isDimmedAsOlder = props.dimmedAsOlderInFamily === true && !props.isActive && !isQuietInTree;
   const rowSurfaceClassName = cn(
     "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
     variantAction === "unsettle" &&
@@ -1009,6 +1088,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     shouldRecede &&
       status === "working" &&
       "opacity-70 transition-opacity hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none",
+    isQuietInTree &&
+      "opacity-45 transition-opacity hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none",
+    isDimmedAsOlder &&
+      "opacity-60 transition-opacity hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none",
     isFileDragOver && "ring-1 ring-inset ring-primary/70",
     isFileDragOver && !props.isActive && !isSelected && "bg-sidebar-row-hover",
     props.sortable?.isDragging &&
@@ -1064,7 +1147,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     <span
       aria-hidden
       className={cn(
-        "min-w-0 flex-1 text-start text-sm transition-opacity motion-reduce:transition-none",
+        "min-w-0 flex-1 text-sm text-start transition-opacity motion-reduce:transition-none",
         shouldRecede ? "font-normal" : "font-medium",
         variant !== "slim"
           ? cn(
@@ -1248,23 +1331,59 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     />
   ) : null;
 
+  const nestedList =
+    props.nestedRows === undefined ? null : (
+      // The parent's row drags on pointer down; a nested row must not start that drag.
+      <ul
+        role="group"
+        className="mt-2 ml-(--sidebar-row-content-inset) flex flex-col gap-px pl-3"
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        {props.nestedRows}
+      </ul>
+    );
+
+  const isNestedFamily = props.nestedRows !== undefined && props.nestedRelation === undefined;
+  // Spaces the family only where it meets another chat, so section and box edges
+  // keep their spacing, and two families next to each other share one gap.
+  const nestedFamilyGapClassName =
+    isNestedFamily &&
+    "[[data-thread-item]:not([data-nested-family])+&]:pt-2 [&:has(+[data-thread-item])]:pb-2";
+
   if (variant !== "card") {
     const multiline = variant === "folder-multiline";
     const inFolder = variant === "folder" || multiline;
     return (
       <li
         data-thread-item={threadKey}
+        data-nested-family={isNestedFamily || undefined}
         {...sortableRootProps}
         {...(fileDropHandlers ?? {})}
         className={cn(
-          "list-none [content-visibility:auto] [contain-intrinsic-size:auto_36px]",
-          metaLine !== null && multiline && "[contain-intrinsic-size:auto_54px]",
+          "list-none",
+          // Paint containment would clip a nested row's connector, which sits left of its box.
+          props.nestedRelation === undefined &&
+            props.nestedRows === undefined &&
+            "[content-visibility:auto] [contain-intrinsic-size:auto_36px]",
+          props.nestedRelation === undefined &&
+            props.nestedRows === undefined &&
+            metaLine !== null &&
+            multiline &&
+            "[contain-intrinsic-size:auto_54px]",
+          props.nestedRelation !== undefined && "group/nested-row relative",
           props.tagBoxPart && sidebarTagBoxPartClassName(props.tagBoxPart, "slim"),
+          nestedFamilyGapClassName,
           props.settledWhileOpen &&
             "mx-0.5 mb-4 rounded-lg border-2 border-dashed border-sidebar-foreground/25 opacity-60 transition-opacity hover:opacity-100 focus-within:opacity-100",
           sortable?.isDragging && "relative z-20",
         )}
       >
+        {props.nestedRelation !== undefined ? (
+          <NestedThreadConnector
+            relation={props.nestedRelation}
+            fade={isQuietInTree ? "quiet" : isDimmedAsOlder ? "older" : null}
+          />
+        ) : null}
         <Tooltip disabled={sortable?.isDragging}>
           <TooltipTrigger
             render={
@@ -1284,7 +1403,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     ? "flex flex-col justify-center px-2.5 py-1.5"
                     : "flex h-9 items-center gap-2.5 px-2.5",
                   // Lines titles up with the folder name, past its chevron and icon.
-                  inFolder && "ps-9",
+                  inFolder && props.nestedRelation === undefined && "ps-9",
                 )}
                 onClick={handleClick}
                 onDoubleClick={handleDoubleClick}
@@ -1359,6 +1478,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                         />
                         <TooltipPopup side="top">Dismiss Woke notification</TooltipPopup>
                       </Tooltip>
+                    ) : props.copiedToTopShelf ? (
+                      <ArrowUpIcon
+                        aria-hidden
+                        strokeWidth={2.5}
+                        className="size-3 text-sidebar-muted-foreground"
+                      />
                     ) : inFolder && topStatus ? (
                       // Folder rows have no status line, so the status takes the time slot.
                       <span
@@ -1424,18 +1549,21 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                           <button
                             type="button"
                             aria-label="Settle thread"
+                            aria-disabled={props.settleBlockedByNestedThreads || undefined}
                             onClick={handleSettleClick}
-                            onPointerDown={handleActionPointerDown}
+                            onPointerDown={handleSettlePointerDown}
                             className={cn(
                               "pointer-events-none absolute inset-y-0 right-0 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-2 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-any-hover/sidebar-row:pointer-events-auto group-any-hover/sidebar-row:opacity-100",
                               isWoke && "group-any-hover/sidebar-row:static",
+                              props.settleBlockedByNestedThreads &&
+                                "cursor-default hover:text-muted-foreground group-any-hover/sidebar-row:opacity-50",
                             )}
                           />
                         }
                       >
                         <CheckIcon className="size-3" />
                       </TooltipTrigger>
-                      <TooltipPopup side="top">Settle thread</TooltipPopup>
+                      <TooltipPopup side="top">{settleTooltip}</TooltipPopup>
                     </Tooltip>
                   )}
                   {jumpHintLabel ? <JumpHintBadge label={jumpHintLabel} /> : null}
@@ -1447,6 +1575,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           </TooltipTrigger>
           {detailsTooltip}
         </Tooltip>
+        {nestedList}
       </li>
     );
   }
@@ -1454,12 +1583,22 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   return (
     <li
       data-thread-item={threadKey}
+      data-nested-family={isNestedFamily || undefined}
       {...sortableRootProps}
       {...(fileDropHandlers ?? {})}
       className={cn(
-        "list-none [content-visibility:auto] [contain-intrinsic-size:auto_82px]",
-        metaLineEmpty && "[contain-intrinsic-size:auto_62px]",
+        "list-none",
+        // Paint containment would clip the connectors of the rows nested under this card,
+        // and a copy's extra parent line doesn't fit the size estimate.
+        props.nestedRows === undefined &&
+          props.shelfCopyParent === undefined &&
+          "[content-visibility:auto] [contain-intrinsic-size:auto_82px]",
+        props.nestedRows === undefined &&
+          props.shelfCopyParent === undefined &&
+          metaLineEmpty &&
+          "[contain-intrinsic-size:auto_62px]",
         props.tagBoxPart ? sidebarTagBoxPartClassName(props.tagBoxPart, "card") : "py-0.5",
+        nestedFamilyGapClassName,
         sortable?.isDragging && "relative z-20",
       )}
     >
@@ -1488,7 +1627,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           <div
             className={cn(
               "relative z-10 h-[5.125rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)",
-              metaLineEmpty && "h-auto",
+              (metaLineEmpty || props.shelfCopyParent !== undefined) && "h-auto",
             )}
           >
             <div className="flex h-5 min-w-0 items-center gap-1.5">
@@ -1620,16 +1759,21 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                               <button
                                 type="button"
                                 aria-label="Settle thread"
+                                aria-disabled={props.settleBlockedByNestedThreads || undefined}
                                 onClick={handleSettleClick}
-                                onPointerDown={handleActionPointerDown}
-                                className="-mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                                onPointerDown={handleSettlePointerDown}
+                                className={cn(
+                                  "-mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground",
+                                  props.settleBlockedByNestedThreads &&
+                                    "cursor-default opacity-50 hover:text-muted-foreground",
+                                )}
                               />
                             }
                           >
                             <CheckIcon className="size-3.5" />
                             Settle
                           </TooltipTrigger>
-                          <TooltipPopup>Settle thread</TooltipPopup>
+                          <TooltipPopup>{settleTooltip}</TooltipPopup>
                         </Tooltip>
                       ) : null}
                     </span>
@@ -1648,11 +1792,25 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               ) : null}
               {titleLineIcons}
             </div>
+            {props.shelfCopyParent === undefined ? null : (
+              <div className="mt-1 flex min-w-0 items-center gap-1 text-2xs text-secondary-label">
+                <span
+                  aria-hidden
+                  className="-mt-1.5 ml-0.5 h-2.5 w-2 shrink-0 rounded-bl-sm border-b-2 border-l-2 border-sidebar-muted-foreground/65"
+                />
+                <NestedRelationIcon
+                  relation={props.shelfCopyParent.relation}
+                  className={props.shelfCopyParent.relation === "fork" ? "size-3" : "size-2.5"}
+                />
+                <span className="min-w-0 truncate">{props.shelfCopyParent.title}</span>
+              </div>
+            )}
             {metaLine}
           </div>
         </TooltipTrigger>
         {detailsTooltip}
       </Tooltip>
+      {nestedList}
     </li>
   );
 });

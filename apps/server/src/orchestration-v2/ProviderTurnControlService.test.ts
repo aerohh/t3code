@@ -224,6 +224,7 @@ it.effect(
           getSettlementCandidates: () => Effect.die("unused getSettlementCandidates"),
           getThreadsWithPullRequests: () => Effect.die("unused getThreadsWithPullRequests"),
           getThreadWorktreePaths: () => Effect.die("unused getThreadWorktreePaths"),
+          getThreadIdsWithOpenNestedThreads: Effect.die("unused getThreadIdsWithOpenNestedThreads"),
           getSideChatThreadIds: () => Effect.die("unused getSideChatThreadIds"),
           getThreadProjection: () => Effect.die("control effects must not load transcript"),
           getTurnStartContext: () => Effect.die("unused"),

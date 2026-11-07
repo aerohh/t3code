@@ -684,6 +684,124 @@ export function filterSidebarV2VisibleThreads<
   );
 }
 
+export type SidebarNestedRelation = "fork" | "started";
+
+/** The chat a nested chat's Done or In progress copy names, since the copy sits away from its tree. */
+export interface SidebarShelfCopyParent {
+  readonly title: string;
+  readonly relation: SidebarNestedRelation;
+}
+
+export interface SidebarNestedThread<T> {
+  readonly thread: T;
+  readonly relation: SidebarNestedRelation;
+}
+
+type SidebarNestableThread = Pick<
+  SidebarThreadSummary,
+  | "environmentId"
+  | "id"
+  | "lineage"
+  | "forkedFrom"
+  | "startedFromThreadId"
+  | "createdAt"
+  | "pinnedAt"
+>;
+
+function sidebarNestingParent(
+  thread: Pick<SidebarNestableThread, "lineage" | "forkedFrom" | "startedFromThreadId">,
+): { readonly parentId: ThreadId; readonly relation: SidebarNestedRelation } | null {
+  if (thread.lineage.relationshipToParent === "fork") {
+    const parentId =
+      thread.forkedFrom?.type === "run"
+        ? thread.forkedFrom.threadId
+        : thread.lineage.parentThreadId;
+    return parentId === null ? null : { parentId, relation: "fork" };
+  }
+  if (thread.startedFromThreadId !== undefined) {
+    return { parentId: thread.startedFromThreadId, relation: "started" };
+  }
+  return null;
+}
+
+/**
+ * Forks, and threads an agent started from a chat, show only under that chat
+ * while both are in the main list. A pinned child stays with the pins.
+ */
+export function nestSidebarThreadsUnderParents<T extends SidebarNestableThread>(
+  threads: readonly T[],
+): {
+  readonly nestedKeys: ReadonlySet<string>;
+  readonly childrenByParentKey: ReadonlyMap<string, readonly SidebarNestedThread<T>[]>;
+} {
+  const keyOf = (thread: T) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+  const threadKeys = new Set(threads.map(keyOf));
+  const parentKeyByKey = new Map<string, { parentKey: string; relation: SidebarNestedRelation }>();
+  for (const thread of threads) {
+    if (thread.pinnedAt != null) continue;
+    const parent = sidebarNestingParent(thread);
+    if (parent === null) continue;
+    const parentKey = scopedThreadKey(scopeThreadRef(thread.environmentId, parent.parentId));
+    if (!threadKeys.has(parentKey) || parentKey === keyOf(thread)) continue;
+    parentKeyByKey.set(keyOf(thread), { parentKey, relation: parent.relation });
+  }
+  // A loop of parents would hide every chat in it, so a chat nests only when its
+  // chain ends at a chat that sits in the list itself.
+  const reachesListedRoot = (key: string) => {
+    const seen = new Set<string>();
+    let current: string | undefined = key;
+    while (current !== undefined) {
+      if (seen.has(current)) return false;
+      seen.add(current);
+      current = parentKeyByKey.get(current)?.parentKey;
+    }
+    return true;
+  };
+  const nestedKeys = new Set<string>();
+  const children = new Map<string, SidebarNestedThread<T>[]>();
+  for (const thread of threads) {
+    const key = keyOf(thread);
+    const parent = parentKeyByKey.get(key);
+    if (parent === undefined || !reachesListedRoot(key)) continue;
+    nestedKeys.add(key);
+    const siblings = children.get(parent.parentKey) ?? [];
+    siblings.push({ thread, relation: parent.relation });
+    children.set(parent.parentKey, siblings);
+  }
+  for (const siblings of children.values()) {
+    siblings.sort(
+      (left, right) =>
+        (left.relation === right.relation ? 0 : left.relation === "fork" ? -1 : 1) ||
+        left.thread.createdAt.localeCompare(right.thread.createdAt),
+    );
+  }
+  return { nestedKeys, childrenByParentKey: children };
+}
+
+/** Matches the server, which won't settle a chat while one of its nested chats is open. */
+export function sidebarThreadKeysWithOpenNestedThreads(
+  threads: readonly Pick<
+    SidebarThreadSummary,
+    | "environmentId"
+    | "lineage"
+    | "forkedFrom"
+    | "startedFromThreadId"
+    | "archivedAt"
+    | "settledOverride"
+    | "sideChat"
+  >[],
+): ReadonlySet<string> {
+  const keys = new Set<string>();
+  for (const thread of threads) {
+    if (thread.archivedAt !== null || thread.settledOverride === "settled") continue;
+    if (isSideChatThread(thread)) continue;
+    const parent = sidebarNestingParent(thread);
+    if (parent === null) continue;
+    keys.add(scopedThreadKey(scopeThreadRef(thread.environmentId, parent.parentId)));
+  }
+  return keys;
+}
+
 /**
  * Tag names are case-insensitive: "Billing" and "billing" are one tag. Every
  * place that compares or groups tags goes through this key. Plain toLowerCase,

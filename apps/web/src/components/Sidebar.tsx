@@ -77,6 +77,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
@@ -226,6 +227,10 @@ import {
   resolveSidebarDayLabels,
   sidebarThreadLastUsedMs,
   NO_SIDEBAR_DAY_LABELS,
+  nestSidebarThreadsUnderParents,
+  sidebarThreadKeysWithOpenNestedThreads,
+  type SidebarNestedThread,
+  type SidebarShelfCopyParent,
   sortPinnedThreadsForSidebar,
   sortThreadsForSidebar,
   sortDoneThreadsByFinish,
@@ -286,6 +291,7 @@ import { composerDraftHasUserContent, DraftId, useComposerDraftStore } from "../
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
 import {
   SidebarSearchResultRow,
+  NestedThreadRow,
   SortableThreadRow,
   sidebarTagBoxPartClassName,
   type SidebarProviderEntry,
@@ -358,6 +364,9 @@ const sidebarProviderEntriesAtom = Atom.make((get) => {
 
 const EMPTY_PROVIDER_ENTRIES: ReadonlyMap<string, SidebarProviderEntry> = new Map();
 const EMPTY_THREADS: readonly EnvironmentThreadShell[] = [];
+const NO_SIDEBAR_NESTING: ReturnType<
+  typeof nestSidebarThreadsUnderParents<EnvironmentThreadShell>
+> = { nestedKeys: new Set(), childrenByParentKey: new Map() };
 
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
@@ -564,19 +573,73 @@ function useSidebarThreads(input: {
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
-  const {
-    pinnedThreads,
-    doneThreads,
-    activeThreads,
-    workingThreads,
-    snoozedThreads,
-    settledThreads,
-  } = partition;
+  const { pinnedThreads, snoozedThreads, settledThreads } = partition;
+  // Boring mode's one-line folder rows have no room for nested cards.
+  const nesting =
+    folderGroups === null
+      ? nestSidebarThreadsUnderParents([
+          ...pinnedThreads,
+          ...partition.doneThreads,
+          ...partition.workingThreads,
+          ...partition.activeThreads,
+        ])
+      : NO_SIDEBAR_NESTING;
+  const listedOnItsOwn = (thread: EnvironmentThreadShell) =>
+    !nesting.nestedKeys.has(threadShellKey(thread));
+  const activeThreads = partition.activeThreads.filter(listedOnItsOwn);
+  // A collapsed shelf or box keeps the open chat in view; for a nested chat
+  // that means keeping the chat it sits under.
+  const nestedParentKeyByKey = new Map<string, string>();
+  for (const [parentKey, children] of nesting.childrenByParentKey) {
+    for (const child of children) nestedParentKeyByKey.set(threadShellKey(child.thread), parentKey);
+  }
+  let routeListKey = routeRowThreadKey;
+  while (routeListKey !== null && nestedParentKeyByKey.has(routeListKey)) {
+    routeListKey = nestedParentKeyByKey.get(routeListKey)!;
+  }
+  // A nested chat in Done or In progress stays in its tree and also shows a copy
+  // up there, unless its whole family is already in that same shelf.
+  const shelfCopyParentByKey = new Map<string, SidebarShelfCopyParent>();
+  for (const shelfThreads of [partition.doneThreads, partition.workingThreads]) {
+    const shelfKeys = new Set(shelfThreads.map(threadShellKey));
+    for (const [parentKey, children] of nesting.childrenByParentKey) {
+      const childrenInShelf = children.filter((child) =>
+        shelfKeys.has(threadShellKey(child.thread)),
+      );
+      if (childrenInShelf.length === 0) continue;
+      let rootKey = parentKey;
+      while (nestedParentKeyByKey.has(rootKey)) rootKey = nestedParentKeyByKey.get(rootKey)!;
+      if (shelfKeys.has(rootKey)) continue;
+      const parentThread = threads.find((thread) => threadShellKey(thread) === parentKey);
+      if (parentThread === undefined) continue;
+      for (const child of childrenInShelf) {
+        shelfCopyParentByKey.set(threadShellKey(child.thread), {
+          title: parentThread.title,
+          relation: child.relation,
+        });
+      }
+    }
+  }
+  const listedOnItsOwnOrAsCopy = (thread: EnvironmentThreadShell) =>
+    listedOnItsOwn(thread) || shelfCopyParentByKey.has(threadShellKey(thread));
+  const doneThreads = partition.doneThreads.filter(listedOnItsOwnOrAsCopy);
+  const workingThreads = partition.workingThreads.filter(listedOnItsOwnOrAsCopy);
+  const isShelfCopy = (thread: EnvironmentThreadShell) =>
+    shelfCopyParentByKey.has(threadShellKey(thread));
+  const withNestedThreads = (list: readonly EnvironmentThreadShell[]): EnvironmentThreadShell[] =>
+    list.flatMap((thread) => [
+      thread,
+      ...withNestedThreads(
+        (nesting.childrenByParentKey.get(threadShellKey(thread)) ?? []).map(
+          (child) => child.thread,
+        ),
+      ),
+    ]);
   // Done and In progress take chats out of their folders, so each folder
   // shows how many of its chats are up there.
   const liftedCountByTagKey = new Map<string, number>();
   for (const thread of [...doneThreads, ...workingThreads]) {
-    if (thread.tag === null) continue;
+    if (thread.tag === null || isShelfCopy(thread)) continue;
     const tagKey = threadTagGroupKey(thread.tag);
     liftedCountByTagKey.set(tagKey, (liftedCountByTagKey.get(tagKey) ?? 0) + 1);
   }
@@ -593,6 +656,20 @@ function useSidebarThreads(input: {
   // Display spellings come from every visible chat, so a tag reads the same
   // in its active box, its settled box, and the "Move to tag" menu.
   const tagDisplayNames = collectSidebarThreadTagNames(threads);
+  const nowMs = Date.parse(`${nowMinute}:00.000Z`);
+  // A family keeps its parent's place in the list, so when one of its chats was
+  // used today, its older chats dim to let that one stand out.
+  const olderInFreshFamilyKeys = new Set<string>();
+  for (const parent of activeThreads) {
+    if (!nesting.childrenByParentKey.has(threadShellKey(parent))) continue;
+    const family = withNestedThreads([parent]);
+    const isOlder = (thread: EnvironmentThreadShell) =>
+      isBeforeLocalToday(sidebarThreadLastUsedMs(thread), nowMs);
+    if (family.every(isOlder)) continue;
+    for (const thread of family) {
+      if (isOlder(thread)) olderInFreshFamilyKeys.add(threadShellKey(thread));
+    }
+  }
   const { boxes: activeTagBoxes, looseThreads: looseActiveThreads } = groupSidebarThreadsByTag(
     activeThreads,
     tagDisplayNames,
@@ -646,7 +723,7 @@ function useSidebarThreads(input: {
         threads: box.threads,
         open,
         visibleCount: Number.POSITIVE_INFINITY,
-        routeThreadKey: routeRowThreadKey,
+        routeThreadKey: routeListKey,
       }),
       summary: open ? null : summarizeSidebarTagBoxStatus(box.threads),
       liftedCount: liftedCountByTagKey.get(box.tagKey) ?? 0,
@@ -677,11 +754,11 @@ function useSidebarThreads(input: {
   const visibleDoneThreads =
     doneShelfExpanded || !isSidebarShelfBoxed(doneThreads)
       ? doneThreads
-      : routeThreadOnly(doneThreads, routeRowThreadKey);
+      : routeThreadOnly(doneThreads, routeListKey);
   const visibleWorkingThreads =
     workingShelfExpanded || !isSidebarShelfBoxed(workingThreads)
       ? workingThreads
-      : routeThreadOnly(workingThreads, routeRowThreadKey);
+      : routeThreadOnly(workingThreads, routeListKey);
   const projectFolders =
     folderGroups === null
       ? null
@@ -702,10 +779,11 @@ function useSidebarThreads(input: {
               : EMPTY_THREADS,
           };
         });
-  const orderedThreads = [
+  const orderedThreads = withNestedThreads([
     ...pinnedThreads,
-    ...visibleDoneThreads,
-    ...visibleWorkingThreads,
+    // A copy's place in the order is its row in the tree.
+    ...visibleDoneThreads.filter((thread) => !isShelfCopy(thread)),
+    ...visibleWorkingThreads.filter((thread) => !isShelfCopy(thread)),
     ...renderedActiveTagBoxes.flatMap((box) => box.rows),
     ...(projectFolders === null
       ? looseActiveThreads
@@ -713,13 +791,13 @@ function useSidebarThreads(input: {
     ...visibleSnoozedThreads,
     ...renderedSettledTagBoxes.flatMap((box) => box.rows),
     ...renderedSettledThreads,
-  ];
+  ]);
   const sectionByThreadKey = new Map<string, SidebarSection>();
   for (const [list, section] of [
     [pinnedThreads, "pinned"],
-    [doneThreads, "done"],
-    [workingThreads, "working"],
-    [activeThreads, "active"],
+    [partition.doneThreads, "done"],
+    [partition.workingThreads, "working"],
+    [partition.activeThreads, "active"],
     [snoozedThreads, "snoozed"],
     [settledThreads, "settled"],
   ] as const) {
@@ -729,11 +807,18 @@ function useSidebarThreads(input: {
     ...partition,
     threads,
     workingShelfEnabled,
+    doneThreads,
+    workingThreads,
+    activeThreads,
+    nestedThreadsByParentKey: nesting.childrenByParentKey,
+    threadKeysWithOpenNestedThreads: sidebarThreadKeysWithOpenNestedThreads(threads),
+    shelfCopyParentByKey,
+    olderInFreshFamilyKeys,
     searchableThreads: [
       ...pinnedThreads,
-      ...doneThreads,
-      ...workingThreads,
-      ...activeThreads,
+      ...partition.doneThreads,
+      ...partition.workingThreads,
+      ...partition.activeThreads,
       ...snoozedThreads,
       ...settledThreads,
     ],
@@ -1537,6 +1622,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     renderedSettledTagBoxes,
     toggleTagBox,
     showMoreInSettledTagBox,
+    nestedThreadsByParentKey,
+    threadKeysWithOpenNestedThreads,
+    shelfCopyParentByKey,
+    olderInFreshFamilyKeys,
   } = useSidebarThreads({
     projectScopeKey,
     scopedProjectKeys,
@@ -2309,6 +2398,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     ...(draggedActiveOrder === undefined ? {} : { activeOrder: draggedActiveOrder }),
     snoozedThreadCount: snoozedThreads.length,
     draggedThreadIsOlder,
+    // Only read during a drag; outside one the strategy keeps its identity.
+    ...(dragState === null ? {} : { nestingRowKeys: new Set(nestedThreadsByParentKey.keys()) }),
   });
   const draggedThreadKey = dragState?.activeKey;
   const draggedFromSection = dragState?.activeSection;
@@ -3567,7 +3658,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         folderRow?: string,
                         tagBoxPart?: "middle" | "last",
                         shelfBoxPart?: "middle" | "last" | "alone",
-                      ) => {
+                        nested?: Omit<SidebarNestedThread<EnvironmentThreadShell>, "thread"> & {
+                          readonly parentKey: string;
+                        },
+                      ): ReactNode => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
                         );
@@ -3576,14 +3670,121 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           section === "pinned" ||
                           section === "done" ||
                           section === "working";
-                        const rowVariant = folderRow
-                          ? folderRowsMultiline
-                            ? "folder-multiline"
-                            : "folder"
-                          : isCard
-                            ? "card"
-                            : "slim";
+                        // A nested chat is a one-line row, as in the project folders.
+                        const rowVariant = nested
+                          ? "folder"
+                          : folderRow
+                            ? folderRowsMultiline
+                              ? "folder-multiline"
+                              : "folder"
+                            : isCard
+                              ? "card"
+                              : "slim";
                         const settledWhileOpen = section === "settled" && !settledViewOpen;
+                        const shelfCopyParent =
+                          nested === undefined && (section === "working" || section === "done")
+                            ? shelfCopyParentByKey.get(threadKey)
+                            : undefined;
+                        // The copy only points at the chat; its tree stays under the parent.
+                        const nestedThreads =
+                          shelfCopyParent === undefined
+                            ? nestedThreadsByParentKey.get(threadKey)
+                            : undefined;
+                        const rowProps: ComponentProps<typeof NestedThreadRow> = {
+                          nestedRelation: nested?.relation,
+                          copiedToTopShelf:
+                            nested !== undefined && shelfCopyParentByKey.has(threadKey),
+                          shelfCopyParent,
+                          dimmedAsOlderInFamily:
+                            section === "active" && olderInFreshFamilyKeys.has(threadKey),
+                          nestedRows: nestedThreads?.map((child) =>
+                            renderThreadRow(
+                              child.thread,
+                              sectionByThreadKey.get(threadShellKey(child.thread)) ?? "active",
+                              undefined,
+                              undefined,
+                              undefined,
+                              { relation: child.relation, parentKey: threadKey },
+                            ),
+                          ),
+                          thread,
+                          variant: rowVariant,
+                          navigationParent:
+                            nested?.parentKey ??
+                            folderRow ??
+                            (section === "working" || section === "snoozed" || section === "settled"
+                              ? `shelf:${section}`
+                              : undefined),
+                          variantAction:
+                            section === "snoozed"
+                              ? "unsnooze"
+                              : section === "settled"
+                                ? "unsettle"
+                                : "settle",
+                          settlementSupported: serverConfigs.has(thread.environmentId),
+                          settleBlockedByNestedThreads:
+                            threadKeysWithOpenNestedThreads.has(threadKey),
+                          snoozeSupported: serverConfigs.has(thread.environmentId),
+                          pinningSupported: serverConfigs.has(thread.environmentId),
+                          isPinned: thread.pinnedAt != null,
+                          settledWhileOpen: settledWhileOpen,
+                          tagBoxPart: tagBoxPart ?? shelfBoxPart,
+                          dropVerb:
+                            dragState?.activeKey === threadKey
+                              ? resolveSidebarDropVerb(dragState.activeSection, dragTargetSection)
+                              : null,
+                          dragOverPinned:
+                            dragState?.activeKey === threadKey && dragTargetSection === "pinned",
+                          sweepAction: actionSweep?.keys.has(threadKey) ? actionSweep.action : null,
+                          snoozeWakeLabelText:
+                            section === "snoozed" && thread.snoozedUntil != null
+                              ? snoozeWakeLabel(thread.snoozedUntil, {
+                                  now: new Date().toISOString(),
+                                })
+                              : null,
+                          wokeAt: threadWokeAt(thread, { now: snoozeNow }),
+                          isActive: routeRowThreadKey === threadKey,
+                          revealRef: routeRowThreadKey === threadKey ? revealActiveRow : undefined,
+                          isRouteThread: routeThreadKey === threadKey,
+                          isOnScreenBesideActive: routePairPartnerKey === threadKey,
+                          openPullRequestsInRightPanel: routeThreadRef !== null,
+                          jumpLabel: showJumpHints ? (jumpLabelByKey.get(threadKey) ?? null) : null,
+                          currentEnvironmentId: primaryEnvironmentId,
+                          environmentLabel: environmentLabelById.get(thread.environmentId) ?? null,
+                          environmentMachine:
+                            environmentMachineById.get(thread.environmentId) ?? "server",
+                          scratchMachineLabel: scratchMachineLabelFor(thread),
+                          project:
+                            projectByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null,
+                          projectDisplayName:
+                            projectDisplayNameByKey.get(
+                              `${thread.environmentId}:${thread.projectId}`,
+                            ) ?? null,
+                          providerEntryByInstanceId:
+                            providerEntriesByEnvironment.get(thread.environmentId) ??
+                            EMPTY_PROVIDER_ENTRIES,
+                          timestampFormat: timestampFormat,
+                          onThreadClick: handleThreadClick,
+                          onThreadActivate: navigateToThread,
+                          onStartRename: startThreadRename,
+                          onRenameTitleChange: setRenamingTitle,
+                          onCommitRename: commitThreadRename,
+                          onCancelRename: cancelThreadRename,
+                          isRenaming: renamingThreadKey === threadKey,
+                          renamingTitle: renamingThreadKey === threadKey ? renamingTitle : "",
+                          onContextMenu: handleThreadContextMenu,
+                          onSettle: attemptSettle,
+                          onActionSweepStart: startActionSweep,
+                          onUnsettle: attemptUnsettle,
+                          onSnooze: attemptSnooze,
+                          onUnsnooze: attemptUnsnooze,
+                          onUnpin: attemptUnpin,
+                          onAcknowledgeWoke: acknowledgeWoke,
+                          onFileDropThreads: handleThreadFileDrop,
+                        };
+                        if (nested !== undefined) {
+                          return <NestedThreadRow key={threadKey} {...rowProps} />;
+                        }
                         return (
                           <SortableThreadRow
                             key={threadKey}
@@ -3594,6 +3795,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               // Drawn above the list, outside the order drops are worked out from.
                               settledWhileOpen ||
                               renamingThreadKey === threadKey ||
+                              shelfCopyParent !== undefined ||
                               // Rows inside a tag box can't be dragged yet: the
                               // drop math only knows the loose list. Tagged rows
                               // elsewhere (pinned, snoozed) drag as before.
@@ -3601,97 +3803,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               !draggableThreadKeys.has(threadKey) ||
                               optimisticDrop !== null
                             }
-                            thread={thread}
-                            variant={rowVariant}
-                            navigationParent={
-                              folderRow ??
-                              (section === "working" ||
-                              section === "snoozed" ||
-                              section === "settled"
-                                ? `shelf:${section}`
-                                : undefined)
-                            }
-                            variantAction={
-                              section === "snoozed"
-                                ? "unsnooze"
-                                : section === "settled"
-                                  ? "unsettle"
-                                  : "settle"
-                            }
-                            settlementSupported={serverConfigs.has(thread.environmentId)}
-                            snoozeSupported={serverConfigs.has(thread.environmentId)}
-                            pinningSupported={serverConfigs.has(thread.environmentId)}
-                            isPinned={thread.pinnedAt != null}
-                            settledWhileOpen={settledWhileOpen}
-                            tagBoxPart={tagBoxPart ?? shelfBoxPart}
-                            dropVerb={
-                              dragState?.activeKey === threadKey
-                                ? resolveSidebarDropVerb(dragState.activeSection, dragTargetSection)
-                                : null
-                            }
-                            dragOverPinned={
-                              dragState?.activeKey === threadKey && dragTargetSection === "pinned"
-                            }
-                            sweepAction={
-                              actionSweep?.keys.has(threadKey) ? actionSweep.action : null
-                            }
-                            snoozeWakeLabelText={
-                              section === "snoozed" && thread.snoozedUntil != null
-                                ? snoozeWakeLabel(thread.snoozedUntil, {
-                                    now: new Date().toISOString(),
-                                  })
-                                : null
-                            }
-                            wokeAt={threadWokeAt(thread, { now: snoozeNow })}
-                            isActive={routeRowThreadKey === threadKey}
-                            revealRef={
-                              routeRowThreadKey === threadKey ? revealActiveRow : undefined
-                            }
-                            isRouteThread={routeThreadKey === threadKey}
-                            isOnScreenBesideActive={routePairPartnerKey === threadKey}
-                            openPullRequestsInRightPanel={routeThreadRef !== null}
-                            jumpLabel={
-                              showJumpHints ? (jumpLabelByKey.get(threadKey) ?? null) : null
-                            }
-                            currentEnvironmentId={primaryEnvironmentId}
-                            environmentLabel={
-                              environmentLabelById.get(thread.environmentId) ?? null
-                            }
-                            environmentMachine={
-                              environmentMachineById.get(thread.environmentId) ?? "server"
-                            }
-                            scratchMachineLabel={scratchMachineLabelFor(thread)}
-                            project={
-                              projectByKey.get(`${thread.environmentId}:${thread.projectId}`) ??
-                              null
-                            }
-                            projectDisplayName={
-                              projectDisplayNameByKey.get(
-                                `${thread.environmentId}:${thread.projectId}`,
-                              ) ?? null
-                            }
-                            providerEntryByInstanceId={
-                              providerEntriesByEnvironment.get(thread.environmentId) ??
-                              EMPTY_PROVIDER_ENTRIES
-                            }
-                            timestampFormat={timestampFormat}
-                            onThreadClick={handleThreadClick}
-                            onThreadActivate={navigateToThread}
-                            onStartRename={startThreadRename}
-                            onRenameTitleChange={setRenamingTitle}
-                            onCommitRename={commitThreadRename}
-                            onCancelRename={cancelThreadRename}
-                            isRenaming={renamingThreadKey === threadKey}
-                            renamingTitle={renamingThreadKey === threadKey ? renamingTitle : ""}
-                            onContextMenu={handleThreadContextMenu}
-                            onSettle={attemptSettle}
-                            onActionSweepStart={startActionSweep}
-                            onUnsettle={attemptUnsettle}
-                            onSnooze={attemptSnooze}
-                            onUnsnooze={attemptUnsnooze}
-                            onUnpin={attemptUnpin}
-                            onAcknowledgeWoke={acknowledgeWoke}
-                            onFileDropThreads={handleThreadFileDrop}
+                            {...rowProps}
                           />
                         );
                       };

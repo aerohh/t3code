@@ -4137,6 +4137,50 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       }),
   );
 
+  it.effect("keeps a thread unsettled while a thread its agent started is open", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const parentThreadId = ThreadId.make("runtime-layer-nested-settle-parent");
+      const childThreadId = ThreadId.make("runtime-layer-nested-settle-child");
+      for (const [threadId, startedFromThreadId] of [
+        [parentThreadId, undefined],
+        [childThreadId, parentThreadId],
+      ] as const) {
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make(`${threadId}-create`),
+          threadId,
+          projectId: ProjectId.make("runtime-layer-nested-settle-project"),
+          title: threadId,
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          ...(startedFromThreadId === undefined ? {} : { startedFromThreadId }),
+        });
+      }
+      const settle = (threadId: ThreadId, attempt: string) =>
+        orchestrator.dispatch({
+          type: "thread.settle",
+          commandId: CommandId.make(`${threadId}-settle-${attempt}`),
+          threadId,
+        });
+
+      const error = yield* settle(parentThreadId, "early").pipe(Effect.flip);
+      assert.equal(
+        error.cause,
+        `Thread ${parentThreadId} has nested chats that are still open. Settle them before settling this one.`,
+      );
+      yield* settle(childThreadId, "child");
+      yield* settle(parentThreadId, "after-child");
+      const parent = yield* orchestrator.getThreadProjection(parentThreadId);
+      assert.equal(parent.thread.settledOverride, "settled");
+    }),
+  );
+
   it.effect("rejects settling a thread while a run is active", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;

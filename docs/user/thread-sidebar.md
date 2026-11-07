@@ -203,6 +203,8 @@ cannot drag threads, and the Working section is off. Each device keeps its own c
 Choose **Settle thread** from its menu to move finished work out of the active list
 without deleting the conversation. **Un-settle thread** restores it to active work
 and prevents automatic settlement until new activity resumes the usual rules.
+A thread stays open, by hand and automatically, while one of its forks or a thread
+its agent started is still open; settle those first.
 Manually settling an idle thread dismisses unanswered async questions without
 sending an answer or restarting the agent. Settling also closes the thread's
 terminals that wait at an idle prompt, and keeps their output. A terminal that

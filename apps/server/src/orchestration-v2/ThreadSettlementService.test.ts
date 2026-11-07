@@ -562,6 +562,7 @@ interface HarnessOptions {
   ) => Effect.Effect<void>;
   readonly onCloseIdle?: () => Effect.Effect<void>;
   readonly currentThreads?: ReadonlyArray<OrchestrationV2AppThread>;
+  readonly threadsWithOpenNestedThreads?: ReadonlyArray<ThreadId>;
 }
 
 const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options: HarnessOptions) {
@@ -669,6 +670,9 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
               : snapshot.threads.filter((thread) => thread.id === threadId),
           ),
         ),
+      getThreadIdsWithOpenNestedThreads: Effect.succeed(
+        new Set(options.threadsWithOpenNestedThreads ?? []),
+      ),
       getThread: (threadId) => {
         const thread = options.currentThreads?.find((candidate) => candidate.id === threadId);
         return thread
@@ -844,6 +848,28 @@ describe("ThreadSettlementServiceV2 worker", () => {
           yield* startHarness(service, fixture.activation, fixture.snapshotReads);
           expect((yield* Ref.get(fixture.commands)).map((command) => command.threadId)).toEqual([
             thread.id,
+          ]);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("leaves an idle thread open while one of its nested threads is open", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const parent = makeThread("nested-parent");
+        const other = makeThread("nested-other");
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([parent, other]),
+          settings: { ...DEFAULT_SERVER_SETTINGS, sidebarAutoSettleAfterDays: 3 },
+          threadsWithOpenNestedThreads: [parent.id],
+        });
+        yield* Effect.gen(function* () {
+          const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+          expect((yield* Ref.get(fixture.commands)).map((command) => command.threadId)).toEqual([
+            other.id,
           ]);
         }).pipe(Effect.provide(fixture.layer));
       }),

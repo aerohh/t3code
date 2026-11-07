@@ -139,6 +139,8 @@ export function createSidebarSortingStrategy(input: {
   slimHeight?: number;
   boundaryLabelHeight?: number;
   draggedThreadIsOlder?: boolean;
+  /** Rows with cards nested under them: taller than a card, and they move as one. */
+  nestingRowKeys?: ReadonlySet<string>;
 }): SortingStrategy {
   if (input.enabled === false) return () => stationary;
   const { items } = input;
@@ -179,7 +181,9 @@ export function createSidebarSortingStrategy(input: {
       }
       // Boxed rows carry the box's padding, so they don't measure a plain card.
       if (isCardSection(item.section)) {
-        if (!isTopShelfRow(item)) cardHeight ??= rects[index]?.height;
+        if (!isTopShelfRow(item) && !input.nestingRowKeys?.has(item.key)) {
+          cardHeight ??= rects[index]?.height;
+        }
       } else slimHeight ??= rects[index]?.height;
       if (item.key !== active.key) groups[item.section].push(item);
     }
@@ -257,7 +261,8 @@ export function createSidebarSortingStrategy(input: {
         (item.kind === "tag-box-thread" && item.section === "active")
           ? cardHeight
           : slimHeight;
-      const moved = item.kind === "thread" && item.key === active.key;
+      const moved =
+        item.kind === "thread" && item.key === active.key && !input.nestingRowKeys?.has(item.key);
       return item.kind === "marker" &&
         (item.marker === "pinned-header" || item.marker === "pinned-divider")
         ? labelHeight

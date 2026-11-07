@@ -14,6 +14,7 @@ import {
   summarizeSidebarTagBoxStatus,
   deleteSelectedThreadEntries,
   filterSidebarV2VisibleThreads,
+  nestSidebarThreadsUnderParents,
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
   isSidebarThreadDone,
@@ -420,6 +421,60 @@ describe("sidebar thread lineage helpers", () => {
         (thread) => thread.id,
       ),
     ).toEqual([parent.id, fork.id]);
+  });
+
+  it("nests forks and started threads under a listed parent, forks first", () => {
+    const keyOf = (thread: { environmentId: EnvironmentId; id: ThreadId }) =>
+      scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+    const forkOf = (id: string, parentId: ThreadId, createdAt: string) =>
+      makeThreadFixture({
+        id: ThreadId.make(id),
+        createdAt,
+        lineage: { rootThreadId: parentId, parentThreadId: parentId, relationshipToParent: "fork" },
+      });
+    const parent = makeThreadFixture({ id: ThreadId.make("thread-parent") });
+    const started = makeThreadFixture({
+      id: ThreadId.make("thread-started"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      startedFromThreadId: parent.id,
+    });
+    const laterFork = forkOf("thread-later-fork", parent.id, "2026-01-03T00:00:00.000Z");
+    const earlierFork = forkOf("thread-earlier-fork", parent.id, "2026-01-02T00:00:00.000Z");
+    const forkOfFork = forkOf("thread-fork-of-fork", earlierFork.id, "2026-01-04T00:00:00.000Z");
+    const pinnedFork = {
+      ...forkOf("thread-pinned-fork", parent.id, "2026-01-05T00:00:00.000Z"),
+      pinnedAt: "2026-01-06T00:00:00.000Z",
+    };
+    // Its parent is settled, so it is not in the list it gets.
+    const forkOfUnlisted = forkOf("thread-unlisted", ThreadId.make("thread-settled"), "2026-01-01");
+    const loopA = forkOf("thread-loop-a", ThreadId.make("thread-loop-b"), "2026-01-01");
+    const loopB = forkOf("thread-loop-b", loopA.id, "2026-01-01");
+
+    const { nestedKeys, childrenByParentKey } = nestSidebarThreadsUnderParents([
+      parent,
+      started,
+      laterFork,
+      earlierFork,
+      forkOfFork,
+      pinnedFork,
+      forkOfUnlisted,
+      loopA,
+      loopB,
+    ]);
+
+    expect(
+      childrenByParentKey.get(keyOf(parent))?.map((child) => [child.thread.id, child.relation]),
+    ).toEqual([
+      [earlierFork.id, "fork"],
+      [laterFork.id, "fork"],
+      [started.id, "started"],
+    ]);
+    expect(childrenByParentKey.get(keyOf(earlierFork))?.map((child) => child.thread.id)).toEqual([
+      forkOfFork.id,
+    ]);
+    expect([...nestedKeys].toSorted()).toEqual(
+      [started, laterFork, earlierFork, forkOfFork].map(keyOf).toSorted(),
+    );
   });
 });
 

@@ -2693,6 +2693,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ...(command.linkOrigin === undefined || command.delegatedFrom === undefined
         ? {}
         : { delegatedFrom: command.delegatedFrom }),
+      ...(command.startedFromThreadId === undefined
+        ? {}
+        : { startedFromThreadId: command.startedFromThreadId }),
       lineage: {
         parentThreadId: null,
         relationshipToParent: null,
@@ -3235,6 +3238,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           commandId: command.commandId,
           commandType: command.type,
           cause: `Thread ${command.threadId} ${blocker}`,
+        });
+      }
+      const threadsWithOpenNestedThreads =
+        yield* projectionStore.getThreadIdsWithOpenNestedThreads.pipe(mapDispatchError(command));
+      if (threadsWithOpenNestedThreads.has(command.threadId)) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Thread ${command.threadId} has nested chats that are still open. Settle them before settling this one.`,
         });
       }
 

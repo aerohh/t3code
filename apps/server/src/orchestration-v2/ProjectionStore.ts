@@ -567,6 +567,14 @@ export interface ProjectionStoreV2Shape {
     ReadonlyArray<{ readonly parentThreadId: ThreadId; readonly taskId: NodeId }>,
     ProjectionStoreV2Error
   >;
+  /**
+   * Threads with a fork, or a thread their agent started, that is still open.
+   * They stay unsettled until it settles, matching the sidebar's nesting.
+   */
+  readonly getThreadIdsWithOpenNestedThreads: Effect.Effect<
+    ReadonlySet<ThreadId>,
+    ProjectionStoreV2Error
+  >;
   /** The parent's side chats that are not deleted yet. */
   readonly getSideChatThreadIds: (
     parentThreadId: ThreadId,
@@ -1555,6 +1563,9 @@ export function threadShellFromProjection(
     ...(projection.thread.delegatedFrom === undefined
       ? {}
       : { delegatedFrom: projection.thread.delegatedFrom }),
+    ...(projection.thread.startedFromThreadId === undefined
+      ? {}
+      : { startedFromThreadId: projection.thread.startedFromThreadId }),
     latestRunId: latestRun?.id ?? null,
     latestRunRequestedAt: latestRun?.requestedAt ?? null,
     latestRunStartedAt: latestRun?.startedAt ?? null,
@@ -1839,6 +1850,9 @@ function shellFromState(input: {
     ...(input.state.thread.delegatedFrom === undefined
       ? {}
       : { delegatedFrom: input.state.thread.delegatedFrom }),
+    ...(input.state.thread.startedFromThreadId === undefined
+      ? {}
+      : { startedFromThreadId: input.state.thread.startedFromThreadId }),
     latestRunId: input.state.latestRunId,
     latestRunRequestedAt: input.state.latestRunRequestedAt,
     latestRunStartedAt: input.state.latestRunStartedAt,
@@ -6648,6 +6662,31 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
       );
 
+    const getThreadIdsWithOpenNestedThreads: ProjectionStoreV2Shape["getThreadIdsWithOpenNestedThreads"] =
+      sql<{ readonly parent_thread_id: string }>`
+        SELECT DISTINCT parent_thread_id
+        FROM (
+          SELECT CASE
+            WHEN json_extract(payload_json, '$.lineage.relationshipToParent') = 'fork' THEN
+              CASE
+                WHEN json_extract(payload_json, '$.forkedFrom.type') = 'run'
+                  THEN json_extract(payload_json, '$.forkedFrom.threadId')
+                ELSE json_extract(payload_json, '$.lineage.parentThreadId')
+              END
+            ELSE json_extract(payload_json, '$.startedFromThreadId')
+          END AS parent_thread_id
+          FROM orchestration_v2_projection_threads
+          WHERE deleted_at IS NULL
+            AND json_extract(payload_json, '$.archivedAt') IS NULL
+            AND json_extract(payload_json, '$.settledOverride') IS NOT 'settled'
+            AND json_extract(payload_json, '$.sideChat') IS NULL
+        )
+        WHERE parent_thread_id IS NOT NULL
+      `.pipe(
+        Effect.map((rows) => new Set(rows.map((row) => ThreadId.make(row.parent_thread_id)))),
+        Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
+      );
+
     const shellThreadStateFromRow =
       /* Runs once per shell row; the enclosing snapshot or thread read owns the span. */
       Effect.fnUntraced(function* (input: {
@@ -7229,6 +7268,9 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getThreadsWithPullRequests: readOnReader(getThreadsWithPullRequests),
       getThreadWorktreePaths: readOnReader(getThreadWorktreePaths),
       getOpenRemoteDelegatedTasks: getOpenRemoteDelegatedTasks.pipe(NodeSqliteClient.readOnly),
+      getThreadIdsWithOpenNestedThreads: getThreadIdsWithOpenNestedThreads.pipe(
+        NodeSqliteClient.readOnly,
+      ),
       getSideChatThreadIds: readOnReader(getSideChatThreadIds),
       getThreadProjection,
       getTurnStartContext: readOnReader(getTurnStartContext),
