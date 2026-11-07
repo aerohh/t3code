@@ -13,6 +13,7 @@ type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
 const RPC_AGGREGATES = {
   [WS_METHODS.messageBookmarksSubscribe]: "orchestration",
   [WS_METHODS.messageBookmarksList]: "orchestration",
+  [WS_METHODS.messageBookmarksMessages]: "orchestration",
   [WS_METHODS.messageBookmarksAdd]: "orchestration",
   [WS_METHODS.messageBookmarksRename]: "orchestration",
   [WS_METHODS.messageBookmarksRemove]: "orchestration",

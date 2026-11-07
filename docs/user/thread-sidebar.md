@@ -5,14 +5,26 @@ need a separate branch and working directory.
 
 ## Bookmark messages
 
-Bookmark a user or assistant message to return to it later. Open **Chat bookmarks**
-in the chat header and select a bookmark to jump to its message, including older
-history. Each chat can have any number of bookmarks. Bookmarks are saved on the
-thread's environment and are available from web, desktop, and mobile.
+Bookmark an agent reply to return to it later. A bookmark keeps the whole
+exchange: your prompt and the agent's reply. To keep just part of a reply, select
+the text and choose **Bookmark** next to **Cite**, or use the bookmark button in an
+inline page's title bar to keep only that page. Only finished turns can be
+bookmarked, so a turn that is still running, was stopped, or failed can't be.
+
+Open **Chat bookmarks** in the chat header and select a bookmark to jump to it,
+including older history. A text bookmark highlights the words you saved. Each chat
+can have any number of bookmarks. Bookmarks are saved on the thread's environment
+and are available on web and desktop.
+
+Choose **Open in panel** in the bookmarks list to read your bookmarks in the right
+panel while you keep your place in the chat. A reply bookmark shows the prompt and
+reply in full, including any pages the agent showed; a text or page bookmark shows
+only what you saved.
 
 New bookmarks use your configured text generation model for a short title. If it
 is unavailable or does not respond, a few words from the message remain as the
-title. You can rename or remove bookmarks from the list at any time.
+title. A page bookmark uses the page's own title. You can rename or remove
+bookmarks from the list at any time.
 
 ## Find a chat's attachments
 

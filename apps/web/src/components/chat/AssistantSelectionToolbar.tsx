@@ -5,7 +5,7 @@ import {
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { QuoteIcon } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   captureAssistantTextSelection,
@@ -23,17 +23,21 @@ export function AssistantSelectionToolbar({
   viewport,
   threadRef,
   onCite,
+  renderExtraAction,
 }: {
   viewport: HTMLElement | null;
   threadRef: ScopedThreadRef;
   onCite: (citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean;
+  /** Another button beside Cite. Clicking it clears the selection and closes the toolbar. */
+  renderExtraAction?: ((citation: AssistantCitation) => ReactNode) | undefined;
 }) {
   const [selection, setSelection] = useState<{
     citation: AssistantCitation;
     position: SelectionActionPoint;
     sourceAnchor: AssistantCitationSourceAnchor;
   } | null>(null);
-  const toolbarRef = useRef<HTMLButtonElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const citeButtonRef = useRef<HTMLButtonElement>(null);
   const actionsRef = useRef<ReturnType<typeof observeSelectionActions> | null>(null);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the toolbar DOM node and clamps its position inside the window before paint
@@ -145,6 +149,7 @@ export function AssistantSelectionToolbar({
     actionsRef.current = actions;
     const focusActions = (event: KeyboardEvent) => {
       const toolbar = toolbarRef.current;
+      const citeButton = citeButtonRef.current;
       if (
         event.key !== "Tab" ||
         event.shiftKey ||
@@ -154,14 +159,15 @@ export function AssistantSelectionToolbar({
         event.isComposing ||
         event.defaultPrevented ||
         !toolbar ||
+        !citeButton ||
         toolbar.contains(event.target as Node)
       ) {
         return;
       }
-      if (toolbar.disabled) return;
+      if (citeButton.disabled) return;
       event.preventDefault();
       event.stopPropagation();
-      toolbar.focus({ preventScroll: true });
+      citeButton.focus({ preventScroll: true });
     };
     document.addEventListener("keydown", focusActions, true);
     document.addEventListener("selectionchange", actions.selectionChanged);
@@ -186,17 +192,11 @@ export function AssistantSelectionToolbar({
     return true;
   };
   return createPortal(
-    <Button
+    <div
       ref={toolbarRef}
-      type="button"
-      size="xs"
-      variant="glass"
-      disabled={tooLong}
-      aria-label={tooLong ? "Selection is too long to cite" : "Cite selection in composer"}
-      className="fixed z-50 max-w-[calc(100vw-1rem)]"
+      className="fixed z-50 flex max-w-[calc(100vw-1rem)] items-center gap-1"
       style={{ left: selection.position.x, top: selection.position.y }}
       onPointerDown={(event) => event.preventDefault()}
-      onClick={cite}
       onKeyDown={(event) => {
         event.stopPropagation();
         if (event.key === "Escape" && !event.nativeEvent.isComposing) {
@@ -205,9 +205,30 @@ export function AssistantSelectionToolbar({
         }
       }}
     >
-      <QuoteIcon aria-hidden="true" className="size-3.5" />
-      {tooLong ? "Shorten selection" : "Cite"}
-    </Button>,
+      <Button
+        ref={citeButtonRef}
+        type="button"
+        size="xs"
+        variant="glass"
+        disabled={tooLong}
+        aria-label={tooLong ? "Selection is too long to cite" : "Cite selection in composer"}
+        onClick={cite}
+      >
+        <QuoteIcon aria-hidden="true" className="size-3.5" />
+        {tooLong ? "Shorten selection" : "Cite"}
+      </Button>
+      {!tooLong && renderExtraAction ? (
+        <span
+          className="contents"
+          onClick={() => {
+            window.getSelection()?.removeAllRanges();
+            dismiss();
+          }}
+        >
+          {renderExtraAction(selection.citation)}
+        </span>
+      ) : null}
+    </div>,
     document.body,
   );
 }

@@ -1,4 +1,4 @@
-import { WS_METHODS, type MessageBookmark } from "@t3tools/contracts";
+import { WS_METHODS, type RunId } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import {
@@ -29,7 +29,13 @@ export function createMessageBookmarkEnvironmentAtoms<R, E>(
   };
 }
 
-/** Navigation stays local to the client and is scoped to the destination environment. */
+/**
+ * Navigation stays local to the client and is scoped to the destination environment. The entry is
+ * the timeline row to reveal: a message id, or the turn item id of an inline page.
+ */
 export const messageBookmarkNavigation = Atom.family((_threadKey: string) =>
-  Atom.make<{ bookmark: MessageBookmark; requestId: number } | null>(null),
+  Atom.make<{
+    target: { entryId: string; runId: RunId | null };
+    requestId: number;
+  } | null>(null),
 );

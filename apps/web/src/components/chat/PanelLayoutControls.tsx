@@ -80,6 +80,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
         <MessageBookmarksPopover
           key={`bookmarks:${scopedThreadKey(bookmarksThread)}`}
           thread={bookmarksThread}
+          rightPanelAvailable={rightPanelAvailable}
         />
       ) : null}
       {showThreadPanelControl && sideChatAvailable && onToggleSideChat ? (

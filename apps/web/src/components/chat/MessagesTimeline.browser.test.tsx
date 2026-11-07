@@ -1121,13 +1121,7 @@ function messageRow(text: string, id: string): Entry {
 function requestBookmarkJump(routeThreadKey: string, messageId: string) {
   const navigation = messageBookmarkNavigation(routeThreadKey);
   appAtomRegistry.set(navigation, {
-    bookmark: {
-      threadId: ThreadId.make("thread"),
-      messageId: MessageId.make(messageId),
-      runId: null,
-      title: "Bookmarked",
-      createdAt: CREATED_AT,
-    },
+    target: { entryId: messageId, runId: null },
     requestId: 1,
   });
   return navigation;

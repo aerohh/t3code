@@ -6,7 +6,7 @@ import {
   type HtmlRenderReference,
 } from "@t3tools/shared/htmlRender";
 import { AppWindowIcon, Maximize2Icon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { useAssetUrlRefresh } from "~/assets/assetUrls";
 import { useLongLivedAssetUrl } from "~/assets/longLivedAssetUrls";
@@ -26,6 +26,7 @@ export function HtmlRenderFrame(props: {
   readonly htmlRender: HtmlRenderReference;
   readonly threadRef: ScopedThreadRef | undefined;
   readonly onFullscreenChange?: (fullscreen: boolean) => void;
+  readonly titleBarAction?: ReactNode;
 }) {
   const { attachmentId, title } = props.htmlRender;
   const [width, setWidth] = useState(HTML_RENDER_COLUMN_WIDTH);
@@ -95,6 +96,7 @@ export function HtmlRenderFrame(props: {
         <span className="min-w-0 flex-1 truncate text-muted-foreground text-xs font-medium">
           {title}
         </span>
+        {props.titleBarAction}
         <Tooltip>
           <TooltipTrigger
             render={

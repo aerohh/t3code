@@ -638,6 +638,8 @@ export const ServerConfig = Schema.Struct({
   threadSnapshotPagination: Schema.optionalKey(Schema.Boolean),
   threadFind: Schema.optionalKey(Schema.Boolean),
   messageBookmarks: Schema.optionalKey(Schema.Boolean),
+  /** The server can return bookmarks with their whole messages for the bookmarks panel. */
+  messageBookmarksPanel: Schema.optionalKey(Schema.Boolean),
   screenGallery: Schema.optionalKey(Schema.Boolean),
   threadAttachments: Schema.optionalKey(Schema.Boolean),
   threadFindProgressive: Schema.optionalKey(Schema.Boolean),

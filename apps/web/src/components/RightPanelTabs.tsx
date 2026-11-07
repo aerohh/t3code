@@ -27,6 +27,7 @@ import { restrictToFirstScrollableAncestor, restrictToHorizontalAxis } from "@dn
 import { horizontalListSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  BookmarkIcon,
   Smartphone,
   ChevronDown,
   ChevronLeft,
@@ -556,6 +557,8 @@ function surfaceTitle(
       return `#${surface.number}`;
     case "pull-requests":
       return "Pull requests";
+    case "bookmarks":
+      return "Bookmarks";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "preview": {
@@ -646,6 +649,8 @@ function SurfaceIcon({
       );
     case "pull-requests":
       return <PullRequestGlyph.link className="size-3 shrink-0" />;
+    case "bookmarks":
+      return <BookmarkIcon className="size-3 shrink-0" />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />

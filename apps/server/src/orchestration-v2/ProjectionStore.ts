@@ -453,6 +453,33 @@ export interface ProjectionStoreV2Shape {
   readonly getVisibleMessageIds: (
     threadId: ThreadId,
   ) => Effect.Effect<ReadonlySet<MessageId>, ProjectionStoreV2Error>;
+  /**
+   * The same messages, and every visible item, each mapped to whether its turn completed. One with
+   * no turn record counts as completed; one whose turn is still running, was stopped, or failed
+   * does not. Items also carry the thread that stores them, which differs for fork-inherited ones.
+   */
+  readonly getVisibleTurnCompletion: (threadId: ThreadId) => Effect.Effect<
+    {
+      readonly messages: ReadonlyMap<MessageId, boolean>;
+      readonly items: ReadonlyMap<
+        TurnItemId,
+        { readonly completed: boolean; readonly sourceThreadId: ThreadId }
+      >;
+    },
+    ProjectionStoreV2Error
+  >;
+  /**
+   * Each visible message's exchange, in timeline order: the prompt that starts it, any steers, the
+   * message itself, the last assistant message of each run until the next prompt, and completed
+   * tool calls that may be inline pages. Turns that did not complete are left out.
+   */
+  readonly getMessageExchanges: (
+    threadId: ThreadId,
+    messageIds: ReadonlyArray<MessageId>,
+  ) => Effect.Effect<
+    ReadonlyMap<MessageId, ReadonlyArray<OrchestrationV2TurnItem>>,
+    ProjectionStoreV2Error
+  >;
   readonly getMessageCount: (threadId: ThreadId) => Effect.Effect<number, ProjectionStoreV2Error>;
   readonly getSubagentCount: (threadId: ThreadId) => Effect.Effect<number, ProjectionStoreV2Error>;
   readonly getNextTurnItemOrdinal: (
@@ -5822,6 +5849,122 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         ),
       );
 
+    const turnCompleted = (row: TimelineIndexRow) =>
+      row.item.runStatus === undefined || row.item.runStatus === "completed";
+
+    const getVisibleTurnCompletion: ProjectionStoreV2Shape["getVisibleTurnCompletion"] = (
+      threadId,
+    ) =>
+      sql.withTransaction(readTimelineIndex(threadId, new Set())).pipe(
+        Effect.map((index) => {
+          const rows = index.visible.filter((row) => row.synthetic === undefined);
+          return {
+            messages: new Map(
+              rows.flatMap((row) =>
+                row.item.messageId === undefined
+                  ? []
+                  : [[row.item.messageId, turnCompleted(row)] as const],
+              ),
+            ),
+            items: new Map(
+              rows.map(
+                (row) =>
+                  [
+                    row.item.id,
+                    { completed: turnCompleted(row), sourceThreadId: row.sourceThreadId },
+                  ] as const,
+              ),
+            ),
+          };
+        }),
+        Effect.mapError((cause) =>
+          isProjectionStoreThreadNotFoundError(cause) || isProjectionStoreReadError(cause)
+            ? cause
+            : new ProjectionStoreReadError({ threadId, cause }),
+        ),
+      );
+
+    const getMessageExchanges: ProjectionStoreV2Shape["getMessageExchanges"] = (
+      threadId,
+      messageIds,
+    ) =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const index = yield* readTimelineIndex(threadId, new Set());
+            const conversation = index.visible.filter(
+              (row) =>
+                row.synthetic === undefined &&
+                turnCompleted(row) &&
+                (row.item.type === "user_message" ||
+                  row.item.type === "assistant_message" ||
+                  (row.item.type === "dynamic_tool" && row.item.status === "completed")),
+            );
+            // A steer joins the turn it interrupts, so it must not cut the reply off.
+            const startsExchange = (row: TimelineIndexRow) =>
+              row.item.type === "user_message" &&
+              row.item.inputIntent !== "steer" &&
+              row.item.inputIntent !== "promoted_queued_to_steer";
+            const exchanges = new Map<MessageId, ReadonlyArray<OrchestrationV2TurnItem>>();
+            for (const messageId of messageIds) {
+              const at = conversation.findIndex((row) => row.item.messageId === messageId);
+              if (at < 0) continue;
+              let start = at;
+              while (start > 0 && !startsExchange(conversation[start]!)) start--;
+              let end = start + 1;
+              while (end < conversation.length && !startsExchange(conversation[end]!)) end++;
+              const exchange = conversation.slice(start, end);
+              // Mirrors the chat's fold, where a run's last agent message is its reply
+              // (deriveTerminalAssistantMessageIds in apps/web MessagesTimeline.logic.ts).
+              // Change both together.
+              const lastAssistantIndexByRun = new Map<string | null, number>();
+              for (const [index, row] of exchange.entries()) {
+                if (row.item.type === "assistant_message")
+                  lastAssistantIndexByRun.set(row.item.runId, index);
+              }
+              const shown = exchange.filter((row, index) => {
+                if (row.item.type === "assistant_message")
+                  return (
+                    row.item.messageId === messageId ||
+                    lastAssistantIndexByRun.get(row.item.runId) === index
+                  );
+                return true;
+              });
+              const items = yield* Effect.forEach(shown, (row) =>
+                Effect.gen(function* () {
+                  // Only inline pages survive the chat's fold among tool calls; the caller
+                  // confirms the tool, this only skips loading every other tool's output.
+                  const payloads = yield* row.item.type === "dynamic_tool"
+                    ? sql<PayloadRow>`
+                        SELECT payload_json FROM orchestration_v2_projection_turn_items
+                        WHERE thread_id = ${row.sourceThreadId} AND turn_item_id = ${row.sourceItemId}
+                          AND json_extract(payload_json, '$.toolName') LIKE '%html%render%'`
+                    : sql<PayloadRow>`
+                        SELECT payload_json FROM orchestration_v2_projection_turn_items
+                        WHERE thread_id = ${row.sourceThreadId} AND turn_item_id = ${row.sourceItemId}`;
+                  const decoded = yield* decodeRows(
+                    decodeTurnItemPayload,
+                    row.sourceThreadId,
+                  )(payloads);
+                  return decoded[0];
+                }),
+              );
+              exchanges.set(
+                messageId,
+                items.filter((item) => item !== undefined),
+              );
+            }
+            return exchanges;
+          }),
+        )
+        .pipe(
+          Effect.mapError((cause) =>
+            isProjectionStoreThreadNotFoundError(cause) || isProjectionStoreReadError(cause)
+              ? cause
+              : new ProjectionStoreReadError({ threadId, cause }),
+          ),
+        );
+
     const getVisibleUserMessagesWithAttachments: ProjectionStoreV2Shape["getVisibleUserMessagesWithAttachments"] =
       (threadId) =>
         getVisibleMessageIds(threadId).pipe(
@@ -7120,6 +7263,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getThreadSnapshotWindow: readOnReader(getThreadSnapshotWindow),
       getTimelinePage: readOnReader(getTimelinePage),
       getVisibleMessageIds: readOnReader(getVisibleMessageIds),
+      getVisibleTurnCompletion: readOnReader(getVisibleTurnCompletion),
+      getMessageExchanges: readOnReader(getMessageExchanges),
       getThreadHistoryPage: readOnReader(getThreadHistoryPage),
       searchThread: readOnReader(searchThread),
       searchThreadStream,

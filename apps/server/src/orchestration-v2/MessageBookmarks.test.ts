@@ -8,6 +8,7 @@ import {
   ProviderInstanceId,
   ThreadId,
   TextGenerationError,
+  type MessageBookmarkWithExchange,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2SideChat,
 } from "@t3tools/contracts";
@@ -109,7 +110,11 @@ const addMessage = (
   id: string,
   role: "user" | "assistant" | "system",
   text: string,
-  options: { readonly minute?: number; readonly runId?: RunId } = {},
+  options: {
+    readonly minute?: number;
+    readonly runId?: RunId;
+    readonly inputIntent?: "turn_start" | "steer";
+  } = {},
 ) =>
   Effect.gen(function* () {
     const projections = yield* ProjectionStore.ProjectionStoreV2;
@@ -167,7 +172,7 @@ const addMessage = (
               type: "user_message",
               createdBy: "user",
               creationSource: "web",
-              inputIntent: "turn_start",
+              inputIntent: options.inputIntent ?? "turn_start",
               attachments: [],
             }
           : { ...base, type: "assistant_message", streaming: false },
@@ -190,6 +195,57 @@ const setup = Effect.gen(function* () {
   return { target, projections, service: yield* MessageBookmarks.MessageBookmarks };
 });
 
+const addToolCall = (threadId: ThreadId, id: string, toolName: string, runId: RunId) =>
+  Effect.gen(function* () {
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const occurredAt = at(1);
+    yield* projections.apply({
+      id: EventId.make(`item:${id}`),
+      threadId,
+      occurredAt,
+      type: "turn-item.updated",
+      payload: {
+        id: TurnItemId.make(`item:${id}`),
+        threadId,
+        runId,
+        nodeId: null,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: ++nextOrdinal,
+        status: "completed",
+        title: null,
+        startedAt: occurredAt,
+        completedAt: occurredAt,
+        updatedAt: occurredAt,
+        type: "dynamic_tool",
+        toolName,
+        input: {},
+        output: [
+          {
+            type: "text",
+            text: JSON.stringify({ htmlRender: { attachmentId: id, title: id, height: 300 } }),
+          },
+        ],
+      },
+    });
+  });
+
+const describeEntries = (entry: MessageBookmarkWithExchange | undefined) =>
+  entry?.entries.map((item) =>
+    item.type === "page" ? `page: ${item.htmlRender.title}` : `${item.role}: ${item.text}`,
+  );
+
+const wholeMessage = (input: { readonly threadId: ThreadId; readonly messageId: MessageId }) => ({
+  threadId: input.threadId,
+  target: { type: "message" as const, messageId: input.messageId },
+});
+const byMessage = (input: { readonly threadId: ThreadId; readonly messageId: MessageId }) => ({
+  threadId: input.threadId,
+  bookmarkId: input.messageId,
+});
+
 const offline = Layer.mock(TextGeneration.TextGeneration)({
   generateThreadTitle: () =>
     Effect.fail(new TextGenerationError({ operation: "generateThreadTitle", detail: "offline" })),
@@ -206,17 +262,121 @@ it.effect("persists, isolates, renames, removes, and does not cap bookmarks at 1
         index % 2 ? "user" : "assistant",
         `Message ${index}`,
       );
-      yield* service.add({ threadId: target.threadId, messageId });
+      yield* service.add(wholeMessage({ threadId: target.threadId, messageId }));
     }
-    yield* service.add(target);
-    yield* service.add(target);
+    yield* service.add(wholeMessage(target));
+    yield* service.add(wholeMessage(target));
     const rows = yield* service.list(target);
     assert.strictEqual(rows.length, 106);
+    const withExchanges = yield* service.listWithExchanges(target);
+    assert.strictEqual(withExchanges.length, 106);
+    const exchangeOf = (messageId: string) =>
+      describeEntries(withExchanges.find((entry) => entry.bookmarkId === messageId));
+    // Bookmarking the prompt or the reply shows the same prompt-and-reply exchange.
+    assert.deepStrictEqual(exchangeOf("bookmark-1"), ["user: Message 1", "assistant: Message 2"]);
+    assert.deepStrictEqual(exchangeOf("bookmark-2"), ["user: Message 1", "assistant: Message 2"]);
+    assert.deepStrictEqual(exchangeOf(target.messageId), [
+      "assistant: **How** to keep useful messages close at hand forever",
+      "assistant: Message 0",
+    ]);
+    const work = RunId.make("busy-run");
+    const followUp = RunId.make("follow-up-run");
+    const busyTurn = [
+      ["busy-prompt", "user", "Fix it", work],
+      ["busy-progress", "assistant", "Checking files", work],
+      ["busy-steer", "user", "Also the docs", work],
+      ["busy-docs", "assistant", "Now the docs", work],
+      ["busy-final", "assistant", "Done", work],
+      ["follow-up-progress", "assistant", "Checking again", followUp],
+      ["follow-up-final", "assistant", "Still done", followUp],
+    ] as const;
+    for (const [id, role, text, runId] of busyTurn) {
+      yield* addMessage(target.threadId, id, role, text, {
+        runId,
+        inputIntent: id === "busy-steer" ? "steer" : "turn_start",
+      });
+      if (id === "busy-docs") {
+        yield* addToolCall(target.threadId, "Docs page", "mcp__t3-code__html_render", work);
+        yield* addToolCall(target.threadId, "Not a page", "mcp__t3-code__html_preview", work);
+      }
+    }
+    yield* service.add(
+      wholeMessage({ threadId: target.threadId, messageId: MessageId.make("busy-prompt") }),
+    );
+    yield* service.add(
+      wholeMessage({ threadId: target.threadId, messageId: MessageId.make("busy-progress") }),
+    );
+    const busyExchanges = yield* service.listWithExchanges(target);
+    const busyExchangeOf = (messageId: string) =>
+      describeEntries(busyExchanges.find((entry) => entry.bookmarkId === messageId));
+    // As in the chat after a turn ends: a steer and inline pages stay, other tool calls and
+    // progress messages fold into each run's last reply.
+    assert.deepStrictEqual(busyExchangeOf("busy-prompt"), [
+      "user: Fix it",
+      "user: Also the docs",
+      "page: Docs page",
+      "assistant: Done",
+      "assistant: Still done",
+    ]);
+    // A bookmarked progress message still shows.
+    assert.deepStrictEqual(busyExchangeOf("busy-progress"), [
+      "user: Fix it",
+      "assistant: Checking files",
+      "user: Also the docs",
+      "page: Docs page",
+      "assistant: Done",
+      "assistant: Still done",
+    ]);
+
+    const selection = { text: "Done", start: 0, end: 4, prefix: "", suffix: "" };
+    const textTarget = {
+      type: "text" as const,
+      messageId: MessageId.make("busy-final"),
+      selection,
+    };
+    const pageItemId = TurnItemId.make("item:Docs page");
+    yield* service.add({ threadId: target.threadId, target: textTarget });
+    yield* service.add({ threadId: target.threadId, target: textTarget });
+    yield* service.add({ threadId: target.threadId, target: { type: "page", itemId: pageItemId } });
+    const notAPage = TurnItemId.make("item:Not a page");
+    assert.strictEqual(
+      (yield* service
+        .add({ threadId: target.threadId, target: { type: "page", itemId: notAPage } })
+        .pipe(Effect.flip)).reason,
+      "message-not-found",
+    );
+    const saved = yield* service.listSaved(target);
+    const textId = "text:busy-final:0-4";
+    const pageId = `page:${pageItemId}`;
+    assert.deepStrictEqual(
+      saved.filter((bookmark) => bookmark.target.type !== "message"),
+      saved.filter((bookmark) => bookmark.id === textId || bookmark.id === pageId),
+    );
+    assert.deepStrictEqual(saved.find((bookmark) => bookmark.id === textId)?.target, textTarget);
+    const page = saved.find((bookmark) => bookmark.id === pageId);
+    assert.strictEqual(page?.title, "Docs page");
+    assert.deepStrictEqual(page?.target, {
+      type: "page",
+      itemId: pageItemId,
+      htmlRender: { attachmentId: "Docs page", title: "Docs page", height: 300 },
+    });
+    // Agent tools keep seeing whole-message bookmarks only.
+    assert.isFalse((yield* service.list(target)).some((row) => row.messageId === "busy-final"));
+    yield* service.rename({ threadId: target.threadId, bookmarkId: pageId, title: "Renamed page" });
+    assert.strictEqual(
+      (yield* service.listSaved(target)).find((bookmark) => bookmark.id === pageId)?.title,
+      "Renamed page",
+    );
+    yield* service.remove({ threadId: target.threadId, bookmarkId: textId });
+    yield* service.remove({ threadId: target.threadId, bookmarkId: pageId });
+    assert.isFalse(
+      (yield* service.listSaved(target)).some((bookmark) => bookmark.target.type !== "message"),
+    );
     assert.strictEqual(
       rows.find((row) => row.messageId === target.messageId)?.title,
       "How to keep useful messages close at hand",
     );
-    yield* service.rename({ ...target, title: "My title" });
+    yield* service.rename({ ...byMessage(target), title: "My title" });
     assert.strictEqual(
       (yield* service.list(target)).find((row) => row.messageId === target.messageId)?.title,
       "My title",
@@ -224,14 +384,14 @@ it.effect("persists, isolates, renames, removes, and does not cap bookmarks at 1
     const other = ThreadId.make("other-bookmark-thread");
     yield* projections.apply(thread(other, ProjectId.make("bookmarks-project")));
     assert.deepStrictEqual(yield* service.list({ threadId: other }), []);
-    yield* service.remove(target);
-    assert.strictEqual((yield* service.list(target)).length, 105);
+    yield* service.remove(byMessage(target));
+    assert.strictEqual((yield* service.list(target)).length, 107);
     assert.strictEqual(
-      (yield* service.remove(target).pipe(Effect.flip)).reason,
+      (yield* service.remove(byMessage(target)).pipe(Effect.flip)).reason,
       "bookmark-not-found",
     );
     assert.strictEqual(
-      (yield* service.rename({ ...target, title: "Gone" }).pipe(Effect.flip)).reason,
+      (yield* service.rename({ ...byMessage(target), title: "Gone" }).pipe(Effect.flip)).reason,
       "bookmark-not-found",
     );
   }).pipe(Effect.provide(layerTest.pipe(Layer.provide(offline)))),
@@ -241,19 +401,19 @@ it.effect("rejects missing messages and system messages", () =>
   Effect.gen(function* () {
     const { service, target } = yield* setup;
     const missing = yield* service
-      .add({ ...target, messageId: MessageId.make("absent") })
+      .add(wholeMessage({ ...target, messageId: MessageId.make("absent") }))
       .pipe(Effect.flip);
     assert.strictEqual(missing.reason, "message-not-found");
     const system = MessageId.make("system");
     yield* addMessage(target.threadId, system, "system", "Internal message");
     assert.strictEqual(
-      (yield* service.add({ ...target, messageId: system }).pipe(Effect.flip)).reason,
+      (yield* service.add(wholeMessage({ ...target, messageId: system })).pipe(Effect.flip)).reason,
       "message-not-found",
     );
   }).pipe(Effect.provide(layerTest.pipe(Layer.provide(offline)))),
 );
 
-it.effect("hides bookmarks whose message was undone and refuses to add them", () =>
+it.effect("hides and refuses bookmarks on undone, running, and cut-short turns", () =>
   Effect.gen(function* () {
     const { service, target, projections } = yield* setup;
     const runId = RunId.make("undone-run");
@@ -285,8 +445,8 @@ it.effect("hides bookmarks whose message was undone and refuses to add them", ()
     const later = MessageId.make("undone-later");
     yield* addMessage(target.threadId, undone, "assistant", "Answer that gets undone", { runId });
     yield* addMessage(target.threadId, later, "assistant", "Also undone", { runId });
-    yield* service.add(target);
-    yield* service.add({ ...target, messageId: undone });
+    yield* service.add(wholeMessage(target));
+    yield* service.add(wholeMessage({ ...target, messageId: undone }));
     assert.strictEqual((yield* service.list(target)).length, 2);
     yield* projections.apply({
       id: EventId.make("run:undone:rolled-back"),
@@ -299,9 +459,84 @@ it.effect("hides bookmarks whose message was undone and refuses to add them", ()
       (yield* service.list(target)).map((bookmark) => bookmark.messageId),
       [target.messageId],
     );
+    assert.deepStrictEqual(
+      (yield* service.listWithExchanges(target)).map((entry) =>
+        entry.entries.map((item) => (item.type === "message" ? item.messageId : item.itemId)),
+      ),
+      [[target.messageId]],
+    );
     assert.strictEqual(
-      (yield* service.add({ ...target, messageId: later }).pipe(Effect.flip)).reason,
+      (yield* service.add(wholeMessage({ ...target, messageId: later })).pipe(Effect.flip)).reason,
       "message-not-found",
+    );
+
+    const runningRunId = RunId.make("running-run");
+    yield* projections.apply({
+      id: EventId.make("run:running"),
+      threadId: target.threadId,
+      occurredAt: at(4),
+      type: "run.created",
+      payload: { ...run, id: runningRunId, ordinal: 2, status: "running", completedAt: null },
+    });
+    const progress = MessageId.make("running-progress");
+    yield* addMessage(target.threadId, progress, "assistant", "Still working", {
+      runId: runningRunId,
+    });
+    assert.strictEqual(
+      (yield* service.add(wholeMessage({ ...target, messageId: progress })).pipe(Effect.flip))
+        .reason,
+      "turn-not-completed",
+    );
+    assert.strictEqual(
+      (yield* service
+        .add({
+          threadId: target.threadId,
+          target: {
+            type: "text",
+            messageId: progress,
+            selection: { text: "Still", start: 0, end: 5, prefix: "", suffix: "" },
+          },
+        })
+        .pipe(Effect.flip)).reason,
+      "turn-not-completed",
+    );
+    // A turn that hasn't completed stays out of the card it would continue.
+    assert.deepStrictEqual(
+      (yield* service.listWithExchanges(target)).map((entry) =>
+        entry.entries.map((item) => (item.type === "message" ? item.messageId : item.itemId)),
+      ),
+      [[target.messageId]],
+    );
+
+    const stoppedRunId = RunId.make("stopped-run");
+    const stoppedRun = { ...run, id: stoppedRunId, ordinal: 3 };
+    yield* projections.apply({
+      id: EventId.make("run:stopped"),
+      threadId: target.threadId,
+      occurredAt: at(5),
+      type: "run.created",
+      payload: stoppedRun,
+    });
+    const stoppedPrompt = MessageId.make("stopped-prompt");
+    yield* addMessage(target.threadId, stoppedPrompt, "user", "Stop me", { runId: stoppedRunId });
+    // Saved before the rule existed, then the turn turned out to be cut short.
+    yield* service.add(wholeMessage({ ...target, messageId: stoppedPrompt }));
+    yield* projections.apply({
+      id: EventId.make("run:stopped:interrupted"),
+      threadId: target.threadId,
+      occurredAt: at(6),
+      type: "run.updated",
+      payload: { ...stoppedRun, status: "interrupted" },
+    });
+    assert.deepStrictEqual(
+      (yield* service.list(target)).map((bookmark) => bookmark.messageId),
+      [target.messageId],
+    );
+    yield* service.remove(byMessage({ ...target, messageId: stoppedPrompt }));
+    assert.strictEqual(
+      (yield* service.add(wholeMessage({ ...target, messageId: stoppedPrompt })).pipe(Effect.flip))
+        .reason,
+      "turn-not-completed",
     );
   }).pipe(Effect.provide(layerTest.pipe(Layer.provide(offline)))),
 );
@@ -312,7 +547,7 @@ it.effect("publishes generated titles after immediately saving a fallback", () =
     const started = yield* Deferred.make<void>();
     yield* Effect.gen(function* () {
       const { service, target } = yield* setup;
-      yield* service.add(target);
+      yield* service.add(wholeMessage(target));
       yield* Deferred.await(started);
       assert.strictEqual(
         (yield* service.list(target))[0]?.title,
@@ -345,7 +580,7 @@ it.effect("a model that never responds times out and keeps the fallback", () =>
     const interrupted = yield* Deferred.make<void>();
     yield* Effect.gen(function* () {
       const { service, target } = yield* setup;
-      yield* service.add(target);
+      yield* service.add(wholeMessage(target));
       yield* Deferred.await(started);
       yield* TestClock.adjust("10 seconds");
       yield* Deferred.await(interrupted);
@@ -376,11 +611,11 @@ it.effect("late generation cannot overwrite a rename or resurrect a removed book
     const response = yield* Deferred.make<{ title: string }>();
     yield* Effect.gen(function* () {
       const { service, target } = yield* setup;
-      yield* service.add(target);
-      yield* service.rename({ ...target, title: "Chosen title" });
+      yield* service.add(wholeMessage(target));
+      yield* service.rename({ ...byMessage(target), title: "Chosen title" });
       const initial = yield* Deferred.make<void>();
       const updated =
-        yield* Deferred.make<readonly import("@t3tools/contracts").MessageBookmark[]>();
+        yield* Deferred.make<readonly import("@t3tools/contracts").SavedMessageBookmark[]>();
       let first = true;
       const subscriber = yield* service.subscribe(target).pipe(
         Stream.runForEach((rows) => {
@@ -396,7 +631,7 @@ it.effect("late generation cannot overwrite a rename or resurrect a removed book
       yield* Deferred.succeed(response, { title: "Late generated title" });
       assert.strictEqual((yield* Deferred.await(updated))[0]?.title, "Chosen title");
       yield* Fiber.interrupt(subscriber);
-      yield* service.remove(target);
+      yield* service.remove(byMessage(target));
       assert.deepStrictEqual(yield* service.list(target), []);
     }).pipe(
       Effect.provide(
@@ -420,14 +655,14 @@ it.effect("late generation cannot change a newly re-added bookmark", () =>
     let calls = 0;
     yield* Effect.gen(function* () {
       const { service, target } = yield* setup;
-      yield* service.add(target);
+      yield* service.add(wholeMessage(target));
       yield* Deferred.await(firstStarted);
-      yield* service.remove(target);
-      yield* service.add(target);
+      yield* service.remove(byMessage(target));
+      yield* service.add(wholeMessage(target));
       yield* Deferred.await(secondStarted);
       const initial = yield* Deferred.make<void>();
       const completed =
-        yield* Deferred.make<readonly import("@t3tools/contracts").MessageBookmark[]>();
+        yield* Deferred.make<readonly import("@t3tools/contracts").SavedMessageBookmark[]>();
       let first = true;
       const subscriber = yield* service.subscribe(target).pipe(
         Stream.runForEach((rows) => {
@@ -529,15 +764,19 @@ it.effect("bookmarks inherited messages only through the fork boundary", () =>
       ...fork,
       payload: { ...fork.payload, forkedFrom: { type: "run", threadId: source, runId: sourceRun } },
     });
-    yield* service.add({ threadId: forkId, messageId: MessageId.make(`message-${sourceRun}`) });
+    yield* service.add(
+      wholeMessage({ threadId: forkId, messageId: MessageId.make(`message-${sourceRun}`) }),
+    );
     assert.strictEqual(
       (yield* service.list({ threadId: forkId }))[0]?.title,
       "Inherited message 0",
     );
+    const [inherited] = yield* service.listWithExchanges({ threadId: forkId });
+    assert.deepStrictEqual(describeEntries(inherited), ["assistant: Inherited message 0"]);
     assert.deepStrictEqual(yield* service.list(target), []);
     assert.strictEqual(
       (yield* service
-        .add({ threadId: forkId, messageId: MessageId.make(`message-${laterRun}`) })
+        .add(wholeMessage({ threadId: forkId, messageId: MessageId.make(`message-${laterRun}`) }))
         .pipe(Effect.flip)).reason,
       "message-not-found",
     );

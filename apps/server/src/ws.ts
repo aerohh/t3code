@@ -1269,7 +1269,8 @@ const layerMessageBookmarksRpc = ServerMessageBookmarksRpcGroup.toLayer(
     const messageBookmarks = yield* MessageBookmarks.MessageBookmarks;
     return ServerMessageBookmarksRpcGroup.of({
       [WS_METHODS.messageBookmarksSubscribe]: (input) => messageBookmarks.subscribe(input),
-      [WS_METHODS.messageBookmarksList]: (input) => messageBookmarks.list(input),
+      [WS_METHODS.messageBookmarksList]: (input) => messageBookmarks.listSaved(input),
+      [WS_METHODS.messageBookmarksMessages]: (input) => messageBookmarks.listWithExchanges(input),
       [WS_METHODS.messageBookmarksAdd]: (input) => messageBookmarks.add(input),
       [WS_METHODS.messageBookmarksRename]: (input) => messageBookmarks.rename(input),
       [WS_METHODS.messageBookmarksRemove]: (input) => messageBookmarks.remove(input),
@@ -1870,6 +1871,7 @@ export const layerWsRpc = (
           threadSnapshotPagination: true,
           threadFind: true,
           messageBookmarks: true,
+          messageBookmarksPanel: true,
           screenGallery: true,
           threadAttachments: true,
           threadFindProgressive: true,

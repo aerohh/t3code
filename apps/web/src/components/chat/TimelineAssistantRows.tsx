@@ -1,6 +1,6 @@
-import { MessageBookmarkButton } from "./MessageBookmarks";
+import { MessageBookmarkButton, MessageBookmarkPageButton } from "./MessageBookmarks";
 import { shouldPreserveAssistantLineBreaks } from "@t3tools/shared/markdownPipeline";
-import { type RunId } from "@t3tools/contracts";
+import { TurnItemId, type RunId } from "@t3tools/contracts";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
 import { memo, use, useState } from "react";
 import { type ChatMessage, type TurnDiffSummary } from "../../types";
@@ -183,7 +183,11 @@ function AssistantMessageMeta({
         </span>
       ) : null}
       {ctx.bookmarksEnabled && ctx.threadRef ? (
-        <MessageBookmarkButton thread={ctx.threadRef} messageId={message.id} />
+        <MessageBookmarkButton
+          thread={ctx.threadRef}
+          messageId={message.id}
+          runId={message.runId}
+        />
       ) : null}
       <AssistantCopyButton
         message={message}
@@ -270,6 +274,11 @@ export function HtmlRenderTimelineRow({
         htmlRender={row.htmlRender}
         threadRef={ctx.threadRef ?? undefined}
         onFullscreenChange={onFullscreenChange}
+        titleBarAction={
+          ctx.bookmarksEnabled && ctx.threadRef ? (
+            <MessageBookmarkPageButton thread={ctx.threadRef} itemId={TurnItemId.make(row.id)} />
+          ) : undefined
+        }
       />
     </div>
   );

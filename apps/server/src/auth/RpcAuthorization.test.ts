@@ -36,7 +36,11 @@ describe("RPC authorization scopes", () => {
   });
 
   it("allows reading bookmarks separately from changing them", () => {
-    for (const method of [WS_METHODS.messageBookmarksList, WS_METHODS.messageBookmarksSubscribe])
+    for (const method of [
+      WS_METHODS.messageBookmarksList,
+      WS_METHODS.messageBookmarksMessages,
+      WS_METHODS.messageBookmarksSubscribe,
+    ])
       expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationReadScope);
     for (const method of [
       WS_METHODS.messageBookmarksAdd,

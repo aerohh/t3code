@@ -70,6 +70,7 @@ import {
   rememberTimelinePosition,
 } from "./timelineScrollAnchoring";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
+import { MessageBookmarkSelectionButton } from "./MessageBookmarks";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import { type AssistantCitationRequest } from "./AssistantCitationSource";
 import { useAssistantCitationTarget } from "./useAssistantCitationTarget";
@@ -317,10 +318,8 @@ interface MessagesTimelineProps {
 export function MessagesTimeline(props: MessagesTimelineProps) {
   const find = useContext(ThreadFindTimelineContext);
   const bookmarkRequest = useAtomValue(messageBookmarkNavigation(props.routeThreadKey));
-  const bookmark = bookmarkRequest?.bookmark;
-  const bookmarkMatch = bookmark
-    ? { entryId: bookmark.messageId, runId: bookmark.runId, occurrence: 0 }
-    : null;
+  const bookmarkTarget = bookmarkRequest?.target;
+  const bookmarkMatch = bookmarkTarget ? { ...bookmarkTarget, occurrence: 0 } : null;
   const findOpen = find?.findOpen ?? props.findOpen;
   const onBookmarkPositioned = () => {
     const atom = messageBookmarkNavigation(props.routeThreadKey);
@@ -1361,6 +1360,16 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 viewport={timelineViewportElement}
                 threadRef={citationThreadRef}
                 onCite={onCiteAssistantText}
+                renderExtraAction={
+                  bookmarksEnabled
+                    ? (citation) => (
+                        <MessageBookmarkSelectionButton
+                          thread={citationThreadRef}
+                          citation={citation}
+                        />
+                      )
+                    : undefined
+                }
               />
             ) : null}
             <LegendList<MessagesTimelineRow>

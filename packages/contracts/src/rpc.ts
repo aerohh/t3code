@@ -405,11 +405,13 @@ import { VcsError } from "./vcs.ts";
 import { Project, ProjectMutation, ProjectMutationError } from "./project.ts";
 
 import {
-  MessageBookmark,
+  MessageBookmarkAddInput,
   MessageBookmarkError,
+  MessageBookmarkRef,
+  MessageBookmarkRefRenameInput,
   MessageBookmarksInput,
-  MessageBookmarkTarget,
-  MessageBookmarkRenameInput,
+  MessageBookmarkWithExchange,
+  SavedMessageBookmark,
 } from "./messageBookmarks.ts";
 import { ScreenGallery, ScreenGalleryError, ScreenGalleryInput } from "./screenGallery.ts";
 import {
@@ -421,6 +423,7 @@ import {
 export const WS_METHODS = {
   messageBookmarksSubscribe: "messageBookmarks.subscribe",
   messageBookmarksList: "messageBookmarks.list",
+  messageBookmarksMessages: "messageBookmarks.messages",
   messageBookmarksAdd: "messageBookmarks.add",
   messageBookmarksRename: "messageBookmarks.rename",
   messageBookmarksRemove: "messageBookmarks.remove",
@@ -1770,27 +1773,32 @@ const WsOrchestrationV2SearchThreadStreamRpc = Rpc.make(
 
 const WsMessageBookmarksSubscribeRpc = Rpc.make(WS_METHODS.messageBookmarksSubscribe, {
   payload: MessageBookmarksInput,
-  success: Schema.Array(MessageBookmark),
+  success: Schema.Array(SavedMessageBookmark),
   error: Schema.Union([MessageBookmarkError, EnvironmentAuthorizationError]),
   stream: true,
 });
 const WsMessageBookmarksListRpc = Rpc.make(WS_METHODS.messageBookmarksList, {
   payload: MessageBookmarksInput,
-  success: Schema.Array(MessageBookmark),
+  success: Schema.Array(SavedMessageBookmark),
+  error: Schema.Union([MessageBookmarkError, EnvironmentAuthorizationError]),
+});
+const WsMessageBookmarksMessagesRpc = Rpc.make(WS_METHODS.messageBookmarksMessages, {
+  payload: MessageBookmarksInput,
+  success: Schema.Array(MessageBookmarkWithExchange),
   error: Schema.Union([MessageBookmarkError, EnvironmentAuthorizationError]),
 });
 const WsMessageBookmarksAddRpc = Rpc.make(WS_METHODS.messageBookmarksAdd, {
-  payload: MessageBookmarkTarget,
+  payload: MessageBookmarkAddInput,
   success: Schema.Void,
   error: Schema.Union([MessageBookmarkError, EnvironmentAuthorizationError]),
 });
 const WsMessageBookmarksRenameRpc = Rpc.make(WS_METHODS.messageBookmarksRename, {
-  payload: MessageBookmarkRenameInput,
+  payload: MessageBookmarkRefRenameInput,
   success: Schema.Void,
   error: Schema.Union([MessageBookmarkError, EnvironmentAuthorizationError]),
 });
 const WsMessageBookmarksRemoveRpc = Rpc.make(WS_METHODS.messageBookmarksRemove, {
-  payload: MessageBookmarkTarget,
+  payload: MessageBookmarkRef,
   success: Schema.Void,
   error: Schema.Union([MessageBookmarkError, EnvironmentAuthorizationError]),
 });
@@ -2040,6 +2048,7 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
 // The server implements this group in its own handler layer; see ws.ts.
 export const MessageBookmarksRpcGroup = RpcGroup.make(
   WsMessageBookmarksListRpc,
+  WsMessageBookmarksMessagesRpc,
   WsMessageBookmarksSubscribeRpc,
   WsMessageBookmarksAddRpc,
   WsMessageBookmarksRenameRpc,

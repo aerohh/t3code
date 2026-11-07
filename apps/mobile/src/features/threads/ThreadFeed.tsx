@@ -1,5 +1,4 @@
 import { Button } from "../../components/ui/Button";
-import { MessageBookmarkButton } from "./MessageBookmarks";
 import * as Dialog from "../../components/ui/Dialog";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { useWorkspaceSettledContentWidth } from "../layout/workspace-content-width";
@@ -2214,12 +2213,6 @@ function renderFeedEntry(
                   <SymbolView name="pencil" size={14} tintColor={iconSubtleColor} />
                 </Pressable>
               ) : null}
-              {!entry.pendingMessage || entry.acknowledged ? (
-                <MessageBookmarkButton
-                  thread={scopeThreadRef(props.environmentId, props.threadId)}
-                  messageId={message.id}
-                />
-              ) : null}
               {presentation.text.trim().length > 0 ? (
                 <UserMessageCopyButton
                   text={presentation.text}
@@ -2284,10 +2277,6 @@ function renderFeedEntry(
         ) : null}
         {showAssistantMeta ? (
           <View className="mt-1 flex-row items-center gap-1">
-            <MessageBookmarkButton
-              thread={scopeThreadRef(props.environmentId, props.threadId)}
-              messageId={message.id}
-            />
             <CopyTextButton
               accessibilityLabel="Copy message"
               text={renderedText}

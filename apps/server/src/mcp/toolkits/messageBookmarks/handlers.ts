@@ -4,6 +4,7 @@ import * as MessageBookmarks from "../../../orchestration-v2/MessageBookmarks.ts
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { MessageBookmarksToolkit } from "./tools.ts";
 
+// Agent tools only handle whole-message bookmarks, whose bookmark id is the message id.
 const failure = (cause: MessageBookmarkError) =>
   new OrchestratorMcpFailure({ code: "orchestration_error", message: cause.message });
 const handlers = {
@@ -18,7 +19,12 @@ const handlers = {
     (input) =>
       Effect.gen(function* () {
         const service = yield* MessageBookmarks.MessageBookmarks;
-        return yield* service.add(input).pipe(Effect.as({}), Effect.mapError(failure));
+        return yield* service
+          .add({
+            threadId: input.threadId,
+            target: { type: "message", messageId: input.messageId },
+          })
+          .pipe(Effect.as({}), Effect.mapError(failure));
       }),
   ),
   t3_message_bookmark_rename: McpToolAccess.writesThreads(
@@ -26,7 +32,9 @@ const handlers = {
     (input) =>
       Effect.gen(function* () {
         const service = yield* MessageBookmarks.MessageBookmarks;
-        return yield* service.rename(input).pipe(Effect.as({}), Effect.mapError(failure));
+        return yield* service
+          .rename({ threadId: input.threadId, bookmarkId: input.messageId, title: input.title })
+          .pipe(Effect.as({}), Effect.mapError(failure));
       }),
   ),
   t3_message_bookmark_remove: McpToolAccess.writesThreads(
@@ -34,7 +42,9 @@ const handlers = {
     (input) =>
       Effect.gen(function* () {
         const service = yield* MessageBookmarks.MessageBookmarks;
-        return yield* service.remove(input).pipe(Effect.as({}), Effect.mapError(failure));
+        return yield* service
+          .remove({ threadId: input.threadId, bookmarkId: input.messageId })
+          .pipe(Effect.as({}), Effect.mapError(failure));
       }),
   ),
 } satisfies McpToolAccess.Handlers<typeof MessageBookmarksToolkit.tools>;
