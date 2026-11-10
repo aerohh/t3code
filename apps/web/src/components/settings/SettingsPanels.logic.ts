@@ -80,6 +80,7 @@ type TypographySettings = Pick<
   | "fontFamilyTerminal"
   | "fontSizeInterface"
   | "fontSizePrompt"
+  | "fontSizeSidebar"
   | "fontSizeCode"
   | "fontSizeTerminal"
 >;
@@ -89,6 +90,9 @@ export function getChangedTypographySettingLabels(settings: TypographySettings):
     ...(settings.fontFamilySans !== DEFAULT_UNIFIED_SETTINGS.fontFamilySans ||
     settings.fontSizeInterface !== DEFAULT_UNIFIED_SETTINGS.fontSizeInterface
       ? ["Interface font"]
+      : []),
+    ...(settings.fontSizeSidebar !== DEFAULT_UNIFIED_SETTINGS.fontSizeSidebar
+      ? ["Sidebar font size"]
       : []),
     ...(settings.fontFamilyComposer !== DEFAULT_UNIFIED_SETTINGS.fontFamilyComposer ||
     settings.fontSizePrompt !== DEFAULT_UNIFIED_SETTINGS.fontSizePrompt

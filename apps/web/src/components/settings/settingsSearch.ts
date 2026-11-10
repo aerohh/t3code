@@ -373,6 +373,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["typography family size system sans"],
   },
   {
+    id: "sidebar-font-size",
+    title: "Sidebar font size",
+    to: "/settings/appearance",
+    searchTerms: ["typography text icons left navigation threads bigger smaller zoom scale"],
+  },
+  {
     id: "prompt-font",
     title: "Prompt font",
     to: "/settings/appearance",

@@ -1648,7 +1648,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           {accessibleTitle}
           <div
             className={cn(
-              "relative z-10 h-[5.125rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)",
+              "relative z-10 h-20.5 px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)",
               (metaLineEmpty || props.shelfCopyParent !== undefined) && "h-auto",
             )}
           >

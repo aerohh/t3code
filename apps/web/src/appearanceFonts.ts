@@ -64,6 +64,7 @@ export interface AppearanceFontPreferences {
   readonly composer: string;
   readonly sizeInterface: number;
   readonly sizePrompt: number;
+  readonly sizeSidebar: number | null;
   readonly sizeCode: number;
   readonly smoothing: boolean;
   readonly separate: boolean;
@@ -88,7 +89,14 @@ export function applyAppearanceFontVariables(
     }
   }
 
-  root.style.fontSize = `${clampInterfaceFontSize(preferences.sizeInterface)}px`;
+  const interfaceSize = clampInterfaceFontSize(preferences.sizeInterface);
+  root.style.fontSize = `${interfaceSize}px`;
+  if (preferences.sizeSidebar === null) {
+    root.style.removeProperty("--sidebar-font-scale");
+  } else {
+    const sidebarScale = clampInterfaceFontSize(preferences.sizeSidebar) / interfaceSize;
+    root.style.setProperty("--sidebar-font-scale", String(sidebarScale));
+  }
   root.style.setProperty(
     "--font-size-prompt",
     preferences.separate ? `${clampPromptFontSize(preferences.sizePrompt)}px` : "var(--text-sm)",
